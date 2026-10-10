@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOMBER AI STUDIO</title>
+  <meta name="description" content="Estudio de video con inteligencia artificial." />
+  <link rel="icon" href="diseno/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #070910;
+      --surface: #11141d;
+      --surface-2: #181c28;
+      --fg: #eef2fb;
+      --muted: #93a0b8;
+      --line: #2a3144;
+      --violet: #8b6cff;
+      --electric: #3aa7ff;
+      --radius: 1.15rem;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); font-family: Outfit, sans-serif; }
+    body {
+      background-image:
+        radial-gradient(ellipse 80% 50% at 10% -10%, color-mix(in oklab, var(--violet) 22%, transparent), transparent 55%),
+        radial-gradient(ellipse 60% 40% at 100% 0%, color-mix(in oklab, var(--electric) 16%, transparent), transparent 50%);
+      background-attachment: fixed;
+    }
+    a { color: inherit; text-decoration: none; }
+    .wrap { width: min(1120px, calc(100% - 2rem)); margin: 0 auto; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; }
+    .mark { display: flex; align-items: center; gap: 10px; }
+    .mark svg { width: 36px; height: 36px; }
+    .mark strong { font-family: Syne, sans-serif; font-size: 14px; letter-spacing: 0.04em; display: block; }
+    .mark span { font-size: 12px; letter-spacing: 0.14em; color: var(--muted); }
+    .nav { display: flex; gap: 8px; align-items: center; }
+    .btn, .ghost {
+      min-height: 44px; display: inline-flex; align-items: center; border-radius: 999px; padding: 0 16px; font-size: 14px; font-weight: 600;
+    }
+    .btn { background: var(--violet); color: var(--bg); }
+    .electric { background: var(--electric); color: var(--bg); }
+    .ghost { border: 1px solid var(--line); }
+    .hero { display: grid; gap: 28px; padding: 28px 0 8px; }
+    .kicker { color: var(--electric); letter-spacing: 0.16em; text-transform: uppercase; font-size: 12px; margin: 0; }
+    h1 { font-family: Syne, sans-serif; font-size: clamp(2rem, 8vw, 3.6rem); line-height: 1.05; margin: 12px 0 0; }
+    .lead { color: var(--muted); max-width: 36rem; line-height: 1.6; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+    figure { margin: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+    img { width: 100%; display: block; object-fit: cover; aspect-ratio: 16/9; }
+    h2 { font-family: Syne, sans-serif; font-size: 1.6rem; margin: 36px 0 14px; }
+    .grid { display: grid; gap: 12px; }
+    .card { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 16px; }
+    .card h3 { margin: 10px 0 0; font-size: 1rem; }
+    .card p, .step p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 6px 0 0; }
+    .dot { width: 10px; height: 10px; border-radius: 99px; background: var(--electric); box-shadow: 0 0 12px var(--electric); }
+    .shots { display: grid; gap: 12px; margin-top: 28px; }
+    .step { background: var(--surface-2); }
+    .step b { color: var(--electric); font-family: Syne, sans-serif; }
+    .note { margin: 28px 0 48px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+    @media (min-width: 720px) {
+      .hero { grid-template-columns: 1.1fr 0.9fr; align-items: center; padding-top: 48px; }
+      .grid, .shots, .steps { grid-template-columns: repeat(3, 1fr); }
+      .tools { grid-template-columns: repeat(4, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <a class="mark" href="#inicio">
+        <svg viewBox="0 0 36 36" aria-hidden="true">
+          <rect width="36" height="36" rx="10" fill="#181c28" stroke="#2a3144"/>
+          <path d="M9 11 20 18 9 25Z" fill="#3aa7ff"/>
+          <path d="M16 11 27 18 16 25Z" fill="#8b6cff"/>
+        </svg>
+        <span><strong>SOMBER</strong><span>AI STUDIO</span></span>
+      </a>
+      <nav class="nav">
+        <a class="btn" href="#herramientas">Ver el estudio</a>
+      </nav>
+    </header>
+    <main id="inicio">
+      <section class="hero">
+        <div>
+          <p class="kicker">Estudio de video con IA</p>
+          <h1>Convierte tus ideas en videos increíbles</h1>
+          <p class="lead">Escribe una escena, elige el formato y genera. Anime, cine o vertical para redes.</p>
+          <div class="actions">
+            <a class="btn electric" href="#herramientas">Comenzar a crear</a>
+            <a class="ghost" href="#pasos">Cómo funciona</a>
+          </div>
+        </div>
+        <figure>
+          <img src="diseno/gallery/hero.jpg" alt="Personaje de espaldas frente a una ciudad violeta y meteoros azules" />
+        </figure>
+      </section>
+      <h2 id="herramientas">Herramientas</h2>
+      <div class="grid tools">
+        <article class="card"><div class="dot"></div><h3>Texto a video</h3><p>Describe una escena y el estudio la convierte en un clip.</p></article>
+        <article class="card"><div class="dot"></div><h3>Imagen a video</h3><p>Anima una imagen que ya generaste.</p></article>
+        <article class="card"><div class="dot"></div><h3>Anime Studio</h3><p>Personajes, escenarios y escenas con estilo anime.</p></article>
+        <article class="card"><div class="dot"></div><h3>Voces IA</h3><p>Narra el guion con una voz sintética.</p></article>
+        <article class="card"><div class="dot"></div><h3>Editor</h3><p>Ordena clips, subtítulos y narración en una línea de tiempo.</p></article>
+        <article class="card"><div class="dot"></div><h3>Subtítulos</h3><p>Coloca el texto del guion sobre la secuencia.</p></article>
+        <article class="card"><div class="dot"></div><h3>Mis proyectos</h3><p>Lo que generes queda guardado en tu cuenta.</p></article>
+        <article class="card"><div class="dot"></div><h3>Créditos</h3><p>Cada video descuenta créditos en Supabase y se devuelven si falla.</p></article>
+      </div>
+      <div class="shots">
+        <img src="diseno/gallery/neon.jpg" alt="Ciudad bajo la lluvia" />
+        <img src="diseno/gallery/mesa.jpg" alt="Carretera al atardecer" />
+        <img src="diseno/gallery/portrait.jpg" alt="Retrato de estudio" />
+      </div>
+      <h2 id="pasos">Tres pasos</h2>
+      <div class="grid steps">
+        <article class="card step"><b>1</b><h3>Describe</h3><p>Elige estilo, duración y formato vertical, horizontal o cuadrado.</p></article>
+        <article class="card step"><b>2</b><h3>Genera</h3><p>El estudio llama al modelo. La clave no viaja al navegador.</p></article>
+        <article class="card step"><b>3</b><h3>Edita</h3><p>Ordena los clips, añade la narración y guarda el proyecto.</p></article>
+      </div>
+      <p class="note">Esta página es la portada pública. Entrar, generar videos y gastar créditos ocurre en el estudio, no en GitHub.</p>
+    </main>
+  </div>
+</body>
+</html>
