@@ -80,6 +80,13 @@ function Home() {
                 Abrir Anime Studio
               </Link>
             </div>
+            <div className="mt-5 flex flex-wrap gap-2 text-xs text-muted">
+              {["Texto a video", "Imagen a video", "Estilo anime", "Vertical, cine o cuadrado"].map((chip) => (
+                <span key={chip} className="rounded-full border border-line bg-surface px-3 py-1.5">
+                  {chip}
+                </span>
+              ))}
+            </div>
           </div>
           <figure className="overflow-hidden rounded-card border border-line bg-surface">
             <img

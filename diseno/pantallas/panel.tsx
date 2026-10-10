@@ -18,9 +18,24 @@ function Panel() {
     <StudioShell title={`Hola, ${hello}`} kicker="Panel" credits={studio.credits}>
       {studio.error ? <p className="mb-4 text-sm text-danger">{studio.error}</p> : null}
       <p className="mb-5 max-w-xl text-sm text-muted">
-        Empiezas con créditos de prueba. Cada imagen, voz o video descuenta antes de llamar al modelo y se
-        devuelve si la operación falla.
+        {(studio.credits ?? 0) >= 1_000_000_000
+          ? "Tu cuenta de creador no tiene límite. Generar no descuenta créditos."
+          : "Empiezas con créditos de prueba. Cada imagen, voz o video descuenta antes de llamar al modelo y se devuelve si la operación falla."}
       </p>
+      <div className="mb-4 grid grid-cols-3 gap-2">
+        <div className="rounded-card border border-line bg-surface p-3">
+          <p className="text-lg font-semibold">{studio.projects.length}</p>
+          <p className="text-xs text-muted">Proyectos</p>
+        </div>
+        <div className="rounded-card border border-line bg-surface p-3">
+          <p className="text-lg font-semibold">{(studio.credits ?? 0) >= 1_000_000_000 ? "∞" : studio.credits ?? 0}</p>
+          <p className="text-xs text-muted">Créditos</p>
+        </div>
+        <div className="rounded-card border border-line bg-surface p-3">
+          <p className="text-lg font-semibold">3</p>
+          <p className="text-xs text-muted">Formatos</p>
+        </div>
+      </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <Link to="/generar" search={{ modo: "video" }} className="rounded-card border border-line bg-surface p-4">
           <p className="text-xs text-electric">Texto a video</p>

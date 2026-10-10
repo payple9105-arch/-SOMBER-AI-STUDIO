@@ -36,8 +36,8 @@ export function StudioShell({
   const path = useRouterState({ select: (s) => s.location.pathname });
   return (
     <div className="min-h-screen text-fg">
-      <div className="mx-auto flex max-w-6xl gap-6 px-4 pb-24 pt-4 md:px-6 md:pb-10 md:pt-6">
-        <aside className="sticky top-4 hidden h-[calc(100vh-2rem)] w-52 shrink-0 flex-col rounded-card border border-line bg-surface/90 p-3 md:flex">
+      <div className="mx-auto flex max-w-6xl gap-6 px-4 pb-24 pt-4 md:px-6 md:pb-10 md:pt-6 lg:pb-10">
+        <aside className="sticky top-4 hidden h-[calc(100vh-2rem)] w-52 shrink-0 flex-col rounded-card border border-line bg-surface/90 p-3 lg:flex">
           <Mark to="/panel" />
           <nav className="mt-6 flex flex-1 flex-col gap-1">
             {NAV.map((item) => {
@@ -66,10 +66,10 @@ export function StudioShell({
         </aside>
         <div className="min-w-0 flex-1">
           <header className="mb-5 flex items-start justify-between gap-3">
-            <div className="md:hidden">
+            <div className="lg:hidden">
               <Mark to="/panel" />
             </div>
-            <div className="hidden md:block">
+            <div className="hidden lg:block">
               <p className="text-xs tracking-widest text-electric uppercase">{kicker}</p>
               <h1 className="font-display text-3xl font-bold tracking-tight">{title}</h1>
             </div>
@@ -79,17 +79,36 @@ export function StudioShell({
                   to="/cuenta"
                   className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-fg"
                 >
-                  {credits} créditos
+                  {credits >= 1_000_000_000 ? "Sin límite" : `${credits} créditos`}
                 </Link>
               ) : null}
               <UserButton />
             </div>
           </header>
-          <div className="mb-4 md:hidden">
+          <div className="mb-4 lg:hidden">
             <p className="text-xs tracking-widest text-electric uppercase">{kicker}</p>
             <h1 className="font-display text-2xl font-bold">{title}</h1>
           </div>
           {children}
+          <nav className="mt-6 hidden gap-2 md:grid md:grid-cols-4 lg:hidden">
+            {NAV.slice(0, 4).map((item) => {
+              const active = path === item.to;
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className={
+                    "flex min-h-11 items-center justify-center gap-2 rounded-xl border border-line text-sm " +
+                    (active ? "bg-surface-2 text-fg" : "text-muted")
+                  }
+                >
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
       </div>
       <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-line bg-bg/95 px-1 py-1 backdrop-blur md:hidden">
