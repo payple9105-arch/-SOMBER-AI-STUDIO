@@ -1,5 +1,7 @@
 # SOMBER AI STUDIO
 
-Plataforma de inteligencia artificial para generar y editar videos.
+Plataforma para generar y editar videos.
 
-El diseño visual está en la carpeta [diseno](diseno/).
+- La página pública está en [index.html](index.html).
+- El diseño visual está en [diseno](diseno/).
+- El núcleo SOMBER AI, en Python y separado de la página, está en [somber-ai](somber-ai/).
