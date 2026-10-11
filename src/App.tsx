@@ -1,5 +1,4 @@
 import { useState } from "react";
-
 const sections = [
   "Inicio",
   "Crear video",
@@ -8,49 +7,42 @@ const sections = [
   "Editor",
   "Planes",
 ];
-
 export default function App() {
   const [activeSection, setActiveSection] = useState("Inicio");
   const [prompt, setPrompt] = useState("");
   const [format, setFormat] = useState("16:9");
   const [notice, setNotice] = useState("");
-
- async function handleCreate() {
-  if (!prompt.trim()) {
-    setNotice("Escribe una descripción para comenzar.");
-    return;
-  }
-
-  const promptForAI =
-    `${prompt.trim()}\nRequested video format: ${format}.`;
-
-  const generatorUrl =
-    "https://6ed441078592c106c8.gradio.live/";
-
-  window.open(
-    generatorUrl,
-    "_blank",
-    "noopener,noreferrer"
-  );
-
-  try {
-    await navigator.clipboard.writeText(promptForAI);
-
-    setNotice(
-      "Generador abierto. Tu descripción está copiada. Pégala allí y pulsa Generar vídeo."
+  async function handleCreate() {
+    if (!prompt.trim()) {
+      setNotice("Escribe una descripción para comenzar.");
+      return;
+    }
+    const promptForAI =
+      `${prompt.trim()}\nRequested video format: ${format}.`;
+    const generatorUrl =
+      "https://6ed441078592c106c8.gradio.live/";
+    // Abrir el generador directamente desde el botón.
+    const generatorWindow = window.open(
+      generatorUrl,
+      "_blank"
     );
-  } catch {
-    setNotice(
-      "Generador abierto. Copia tu descripción y pégala allí para crear el vídeo."
-    );
+    if (!generatorWindow) {
+      setNotice(
+        "El navegador bloqueó la nueva pestaña. Permite las ventanas emergentes e inténtalo de nuevo."
+      );
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(promptForAI);
+      setNotice(
+        "Generador abierto. Tu descripción está copiada. Pégala allí y pulsa Generar vídeo."
+      );
+    } catch {
+      setNotice(
+        "Generador abierto. Copia la descripción y pégala allí para crear el vídeo."
+      );
+    }
   }
-}
-
-    setNotice(
-      "Tu descripción está preparada. La generación con IA se conectará en el siguiente paso."
-    );
-  }
-
   return (
     <main className="app">
       <header className="topbar">
@@ -65,17 +57,14 @@ export default function App() {
             <small>AI STUDIO</small>
           </span>
         </button>
-
         <span className="status">
           <span className="status-dot" />
           Estudio creativo
         </span>
       </header>
-
       <div className="workspace">
         <aside className="sidebar">
           <p className="nav-label">WORKSPACE</p>
-
           {sections.map((section) => (
             <button
               key={section}
@@ -103,19 +92,16 @@ export default function App() {
               {section}
             </button>
           ))}
-
           <div className="sidebar-note">
             <span className="note-icon">✧</span>
             <strong>Tu imaginación.</strong>
             <p>Las herramientas creativas, en un solo lugar.</p>
           </div>
         </aside>
-
         <section className="content">
           <div className="eyebrow">
             SOMBER AI STUDIO <span>/</span> {activeSection.toUpperCase()}
           </div>
-
           {activeSection === "Inicio" ? (
             <>
               <section className="hero">
@@ -123,18 +109,15 @@ export default function App() {
                   <div className="tag">
                     <span>✦</span> TU ESTUDIO CREATIVO CON IA
                   </div>
-
                   <h1>
                     Convierte tus ideas
                     <br />
                     en algo <span>extraordinario.</span>
                   </h1>
-
                   <p>
                     Crea videos, genera imágenes y transforma tus historias
                     en experiencias visuales con SOMBER AI STUDIO.
                   </p>
-
                   <button
                     className="primary-button"
                     onClick={() => setActiveSection("Crear video")}
@@ -142,7 +125,6 @@ export default function App() {
                     Empezar a crear <span>↗</span>
                   </button>
                 </div>
-
                 <div className="hero-art">
                   <div className="orbit orbit-one" />
                   <div className="orbit orbit-two" />
@@ -162,14 +144,12 @@ export default function App() {
                   </div>
                 </div>
               </section>
-
               <div className="section-heading">
                 <div>
                   <h2>¿Qué quieres crear?</h2>
                   <p>Elige una herramienta para comenzar.</p>
                 </div>
               </div>
-
               <div className="tool-grid">
                 <button
                   className="tool-card"
@@ -180,7 +160,6 @@ export default function App() {
                   <p>Convierte una idea o descripción en un video.</p>
                   <span className="tool-arrow">↗</span>
                 </button>
-
                 <button
                   className="tool-card"
                   onClick={() => setActiveSection("Anime")}
@@ -190,7 +169,6 @@ export default function App() {
                   <p>Diseña personajes y escenas para tus historias.</p>
                   <span className="tool-arrow">↗</span>
                 </button>
-
                 <button
                   className="tool-card"
                   onClick={() => setActiveSection("Editor")}
@@ -208,22 +186,18 @@ export default function App() {
               <div className="tag">
                 <span>✦</span> HERRAMIENTA CREATIVA
               </div>
-
               <h1>
                 {activeSection === "Anime"
                   ? "Crea tu universo anime."
                   : "Dale vida a tu idea."}
               </h1>
-
               <p className="panel-description">
-                Describe lo que imaginas. Prepararemos esta herramienta para
-                conectarla con un servicio de generación de IA.
+                Describe lo que imaginas y abre el generador experimental
+                de SOMBER AI STUDIO para crear tu vídeo.
               </p>
-
               <label className="field-label" htmlFor="prompt">
                 Describe tu idea
               </label>
-
               <textarea
                 id="prompt"
                 value={prompt}
@@ -237,11 +211,9 @@ export default function App() {
                     : "Ej.: una ciudad futurista al atardecer, cámara cinematográfica..."
                 }
               />
-
               <label className="field-label" htmlFor="format">
                 Formato del video
               </label>
-
               <select
                 id="format"
                 value={format}
@@ -251,16 +223,21 @@ export default function App() {
                 <option value="9:16">Vertical · 9:16</option>
                 <option value="1:1">Cuadrado · 1:1</option>
               </select>
-
-              <button className="primary-button create-button" onClick={handleCreate}>
-                Preparar creación <span>✦</span>
+              <button
+                className="primary-button create-button"
+                onClick={handleCreate}
+              >
+                Generar vídeo con IA <span>✦</span>
               </button>
-
-              {notice && <p className="notice">{notice}</p>}
-
+              {notice && (
+                <p className="notice" role="status">
+                  {notice}
+                </p>
+              )}
               <p className="helper">
-                Formato seleccionado: {format}. La generación real todavía
-                no está conectada.
+                Formato seleccionado: {format}. Se abrirá el generador
+                experimental en otra pestaña. Pega allí la descripción
+                y pulsa Generar vídeo.
               </p>
             </section>
           ) : (
@@ -278,7 +255,6 @@ export default function App() {
               </button>
             </section>
           )}
-
           <footer className="footer">
             <span>© 2026 SOMBER AI STUDIO</span>
             <span>CREATIVIDAD · TECNOLOGÍA · IMAGINACIÓN</span>
