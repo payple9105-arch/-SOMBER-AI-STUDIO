@@ -15,11 +15,36 @@ export default function App() {
   const [format, setFormat] = useState("16:9");
   const [notice, setNotice] = useState("");
 
-  function handleCreate() {
-    if (!prompt.trim()) {
-      setNotice("Escribe una descripción para comenzar.");
-      return;
-    }
+ async function handleCreate() {
+  if (!prompt.trim()) {
+    setNotice("Escribe una descripción para comenzar.");
+    return;
+  }
+
+  const promptForAI =
+    `${prompt.trim()}\nRequested video format: ${format}.`;
+
+  const generatorUrl =
+    "https://6ed441078592c106c8.gradio.live/";
+
+  window.open(
+    generatorUrl,
+    "_blank",
+    "noopener,noreferrer"
+  );
+
+  try {
+    await navigator.clipboard.writeText(promptForAI);
+
+    setNotice(
+      "Generador abierto. Tu descripción está copiada. Pégala allí y pulsa Generar vídeo."
+    );
+  } catch {
+    setNotice(
+      "Generador abierto. Copia tu descripción y pégala allí para crear el vídeo."
+    );
+  }
+}
 
     setNotice(
       "Tu descripción está preparada. La generación con IA se conectará en el siguiente paso."
