@@ -1,210 +1,22 @@
 <!doctype html>
+
 <html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>SOMBER AI STUDIO</title>
-  <link rel="icon" href="diseno/favicon.svg" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
-  <style>
-    :root { --bg:#070910; --surface:#11141d; --surface-2:#181c28; --fg:#eef2fb; --muted:#93a0b8; --line:#2a3144; --violet:#8b6cff; --electric:#3aa7ff; --radius:1.15rem; }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); font-family: Outfit, sans-serif; }
-    body { background-image: radial-gradient(ellipse 80% 50% at 8% -10%, color-mix(in oklab, var(--violet) 24%, transparent), transparent 55%), radial-gradient(ellipse 50% 40% at 100% 0%, color-mix(in oklab, var(--electric) 16%, transparent), transparent 50%); background-attachment: fixed; }
-    button, a { font: inherit; color: inherit; }
-    button { background: none; border: 0; cursor: pointer; }
-    img { max-width: 100%; display: block; object-fit: cover; }
-    .app { width: min(1180px, 100%); margin: 0 auto; padding: 12px 16px calc(84px + env(safe-area-inset-bottom)); }
-    .top, .side-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .brand { display: flex; align-items: center; gap: 10px; }
-    .brand strong { font-family: Syne, sans-serif; display: block; font-size: 14px; letter-spacing: .04em; }
-    .brand em { font-style: normal; color: var(--muted); font-size: 11px; letter-spacing: .14em; }
-    .pill { min-height: 40px; border-radius: 999px; border: 1px solid var(--line); padding: 0 12px; display: inline-flex; align-items: center; font-size: 13px; }
-    .go { background: var(--violet); color: #070910; border: 0; font-weight: 700; }
-    .side { display: none; }
-    h1 { font-family: Syne, sans-serif; font-size: clamp(1.8rem, 7vw, 3.4rem); line-height: 1.05; margin: 8px 0; }
-    h2 { font-family: Syne, sans-serif; font-size: 1.35rem; margin: 22px 0 10px; }
-    .kicker { color: var(--electric); letter-spacing: .16em; text-transform: uppercase; font-size: 11px; margin: 0; }
-    .muted { color: var(--muted); line-height: 1.5; }
-    .hero, .split, .cards, .plans, .shots { display: grid; gap: 12px; }
-    .card { background: color-mix(in oklab, var(--surface) 92%, transparent); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
-    .shot { border-radius: var(--radius); border: 1px solid var(--line); aspect-ratio: 16/9; width: 100%; }
-    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-    .chip { border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; font-size: 12px; color: var(--muted); }
-    .row { display: flex; flex-wrap: wrap; gap: 8px; }
-    .btn { min-height: 46px; border-radius: 999px; padding: 0 16px; font-weight: 700; }
-    .primary { background: var(--electric); color: #070910; }
-    .ghost { border: 1px solid var(--line); }
-    textarea, select { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: 12px; }
-    textarea { min-height: 120px; }
-    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .view { display: none; }
-    .view.on { display: block; }
-    .tabs { display: none; }
-    .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: color-mix(in oklab, var(--bg) 92%, transparent); border-top: 1px solid var(--line); backdrop-filter: blur(10px); }
-    .tabbar button { min-height: 48px; font-size: 11px; color: var(--muted); }
-    .tabbar button.on { color: var(--electric); }
-    .track { height: 42px; border-radius: 10px; background: #24183f; border: 1px solid var(--line); margin-top: 8px; position: relative; overflow: hidden; }
-    .clip { position: absolute; top: 6px; bottom: 6px; border-radius: 8px; }
-    @media (min-width: 768px) {
-      .app { padding-bottom: 28px; }
-      .tabbar { display: none; }
-      .tabs { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
-      .tabs button { min-height: 42px; border-radius: 999px; border: 1px solid var(--line); padding: 0 14px; color: var(--muted); }
-      .tabs button.on { color: var(--fg); background: var(--surface-2); }
-      .hero, .split { grid-template-columns: 1.1fr .9fr; align-items: center; }
-      .cards { grid-template-columns: 1fr 1fr; }
-      .plans, .shots { grid-template-columns: repeat(3, 1fr); }
-    }
-    @media (min-width: 1100px) {
-      .app { display: grid; grid-template-columns: 220px 1fr; gap: 22px; padding-top: 22px; }
-      .side { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 16px; height: calc(100vh - 32px); border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in oklab, var(--surface) 92%, transparent); padding: 14px; }
-      .side button { text-align: left; min-height: 44px; border-radius: 12px; padding: 0 10px; color: var(--muted); }
-      .side button.on { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--violet) 55%, transparent); }
-      .tabs { display: none; }
-    }
-  </style>
-</head>
-<body>
-  <div class="app">
-    <aside class="side">
-      <div class="side-head brand">
-        <svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><rect width="36" height="36" rx="10" fill="#181c28" stroke="#2a3144"/><path d="M9 11 20 18 9 25Z" fill="#3aa7ff"/><path d="M16 11 27 18 16 25Z" fill="#8b6cff"/></svg>
-        <span><strong>SOMBER</strong><em>AI STUDIO</em></span>
-      </div>
-      <button data-go="inicio" class="on">Inicio</button>
-      <button data-go="crear">Crear video</button>
-      <button data-go="proyectos">Mis proyectos</button>
-      <button data-go="editor">Editor</button>
-      <button data-go="planes">Planes</button>
-    </aside>
-    <div>
-      <header class="top">
-        <div class="brand">
-          <svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><rect width="36" height="36" rx="10" fill="#181c28" stroke="#2a3144"/><path d="M9 11 20 18 9 25Z" fill="#3aa7ff"/><path d="M16 11 27 18 16 25Z" fill="#8b6cff"/></svg>
-          <span><strong>SOMBER</strong><em>AI STUDIO</em></span>
-        </div>
-        <span class="pill">Sin límite</span>
-      </header>
-      <nav class="tabs">
-        <button data-go="inicio" class="on">Inicio</button>
-        <button data-go="crear">Crear</button>
-        <button data-go="proyectos">Proyectos</button>
-        <button data-go="editor">Editor</button>
-        <button data-go="planes">Planes</button>
-      </nav>
-
-      <section id="inicio" class="view on">
-        <div class="hero">
-          <div>
-            <p class="kicker">Estudio de video con IA</p>
-            <h1>Convierte tus ideas en videos increíbles</h1>
-            <p class="muted">Escribe una escena, elige el formato y genera. Anime, cine o vertical para redes. Se adapta al teléfono, a la tableta y a la computadora.</p>
-            <div class="row" style="margin-top:16px">
-              <button class="btn primary" data-go="crear">Comenzar a crear</button>
-              <button class="btn ghost" data-go="editor">Abrir el editor</button>
-            </div>
-            <div class="chips">
-              <span class="chip">Texto a video</span>
-              <span class="chip">Imagen a video</span>
-              <span class="chip">Estilo anime</span>
-              <span class="chip">Vertical, cine o cuadrado</span>
-            </div>
-          </div>
-          <img class="shot" src="diseno/gallery/hero.jpg" alt="Personaje frente a una ciudad violeta" />
-        </div>
-        <h2>Herramientas</h2>
-        <div class="cards">
-          <article class="card"><h3>Texto a video</h3><p class="muted">Describe la escena y el estudio prepara el clip.</p></article>
-          <article class="card"><h3>Imagen a video</h3><p class="muted">Anima una imagen que ya tengas.</p></article>
-          <article class="card"><h3>Anime Studio</h3><p class="muted">Personajes, escenarios y escenas.</p></article>
-          <article class="card"><h3>Editor</h3><p class="muted">Línea de tiempo, subtítulos y narración.</p></article>
-        </div>
-        <div class="shots" style="margin-top:12px">
-          <img class="shot" src="diseno/gallery/neon.jpg" alt="Ciudad de neón" />
-          <img class="shot" src="diseno/gallery/mesa.jpg" alt="Carretera al atardecer" />
-          <img class="shot" src="diseno/gallery/portrait.jpg" alt="Retrato" />
-        </div>
-      </section>
-
-      <section id="crear" class="view">
-        <p class="kicker">Crear</p>
-        <h1>Crear video</h1>
-        <div class="split">
-          <form class="card" onsubmit="return false">
-            <p class="muted">Describe lo que quieres ver</p>
-            <textarea placeholder="Un personaje camina por una azotea al amanecer, cámara lenta, luz violeta."></textarea>
-            <div class="cards" style="margin-top:10px">
-              <label>Estilo<select><option>Cinemático</option><option>Anime</option><option>Cyberpunk</option></select></label>
-              <label>Duración<select><option>5 segundos</option><option>8 segundos</option><option>10 segundos</option></select></label>
-              <label>Formato<select><option>Horizontal 16:9</option><option>Vertical 9:16</option><option>Cuadrado 1:1</option></select></label>
-              <label>Resolución<select><option>480p</option><option>720p</option></select></label>
-            </div>
-            <button class="btn primary" style="margin-top:12px" type="button">Generar video</button>
-          </form>
-          <img class="shot" src="diseno/gallery/hero.jpg" alt="Vista previa" />
-        </div>
-      </section>
-
-      <section id="proyectos" class="view">
-        <p class="kicker">Biblioteca</p>
-        <h1>Mis proyectos</h1>
-        <div class="stats">
-          <article class="card"><strong>0</strong><p class="muted">Guardados</p></article>
-          <article class="card"><strong>∞</strong><p class="muted">Créditos de creador</p></article>
-          <article class="card"><strong>3</strong><p class="muted">Formatos</p></article>
-        </div>
-        <div class="shots" style="margin-top:12px">
-          <img class="shot" src="diseno/gallery/neon.jpg" alt="Ejemplo de ciudad" />
-          <img class="shot" src="diseno/gallery/mesa.jpg" alt="Ejemplo de carretera" />
-          <img class="shot" src="diseno/gallery/portrait.jpg" alt="Ejemplo de retrato" />
-        </div>
-      </section>
-
-      <section id="editor" class="view">
-        <p class="kicker">Editor</p>
-        <h1>Línea de tiempo</h1>
-        <img class="shot" src="diseno/gallery/neon.jpg" alt="Vista previa del editor" />
-        <div class="card" style="margin-top:12px">
-          <p class="muted">Video</p>
-          <div class="track"><span class="clip" style="left:8%;width:28%;background:#8b6cff"></span><span class="clip" style="left:40%;width:34%;background:#3aa7ff"></span></div>
-          <p class="muted">Voz y música</p>
-          <div class="track"><span class="clip" style="left:6%;width:78%;background:#1f8a6a"></span></div>
-          <p class="muted">Subtítulos</p>
-          <div class="track"><span class="clip" style="left:18%;width:22%;background:#c46bff"></span><span class="clip" style="left:48%;width:20%;background:#c46bff"></span></div>
-        </div>
-      </section>
-
-      <section id="planes" class="view">
-        <p class="kicker">Planes</p>
-        <h1>Elige cómo crear</h1>
-        <div class="plans">
-          <article class="card"><h2>Free</h2><p>$0</p><p class="muted">Para probar el estudio y guardar los primeros proyectos.</p></article>
-          <article class="card"><h2>Pro</h2><p>Pronto</p><p class="muted">Más créditos y prioridad en 720p. Los cobros aún no están activos.</p></article>
-          <article class="card"><h2>Ultra</h2><p>Pronto</p><p class="muted">Para un estudio pequeño, cuando haya pagos reales.</p></article>
-        </div>
-      </section>
-    </div>
-  </div>
-  <nav class="tabbar">
-    <button data-go="inicio" class="on">Inicio</button>
-    <button data-go="crear">Crear</button>
-    <button data-go="proyectos">Proyectos</button>
-    <button data-go="editor">Editor</button>
-    <button data-go="planes">Planes</button>
-  </nav>
-  <script>
-    function show(id) {
-      document.querySelectorAll(".view").forEach((el) => el.classList.toggle("on", el.id === id));
-      document.querySelectorAll("[data-go]").forEach((el) => el.classList.toggle("on", el.getAttribute("data-go") === id));
-      window.scrollTo(0, 0);
-    }
-    document.addEventListener("click", (event) => {
-      const hit = event.target.closest("[data-go]");
-      if (hit) show(hit.getAttribute("data-go"));
-    });
-  </script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#070910" />
+    <meta name="description" content="SOMBER AI STUDIO: un estudio creativo para desarrollar ideas de videos, anime y contenido audiovisual." />
+    <title>SOMBER AI STUDIO</title>
+    <link rel="icon" href="./diseno/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Syne:wght@700;800&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
 </html>
