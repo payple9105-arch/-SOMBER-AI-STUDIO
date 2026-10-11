@@ -10,6 +10,7 @@ throw new Error("No se encontró el elemento root en index.html");
 }
 
 createRoot(rootElement).render(
-<React.StrictMode>
-</React.StrictMode>
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
 );
