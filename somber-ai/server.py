@@ -134,7 +134,12 @@ def generate(request: GenerateRequest):
             ),
         ) from error
 
-    except httpx.RequestError as error:
+       except httpx.RequestError as error:
+        print(
+            f"Error de conexión con fal.ai: "
+            f"{type(error).__name__}: {error!r}",
+            flush=True,
+        )
         raise HTTPException(
             status_code=502,
             detail="No se pudo conectar con el servicio de generación.",
