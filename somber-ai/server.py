@@ -10,7 +10,7 @@ from somber_ai.core import SomberAI
 app = FastAPI(
 title=“SOMBER AI API”,
 description=“Servidor central de SOMBER AI STUDIO”,
-version=“0.3.1”,
+version=“0.3.2”,
 )
 
 app.add_middleware(
@@ -38,25 +38,20 @@ key = os.getenv(“FAL_KEY”)
 if not key:
     raise HTTPException(
         status_code=503,
-        detail="FAL_KEY no está configurada en el servidor.",
+        detail="FAL_KEY no está configurada en Render.",
     )
 return {
     "Authorization": f"Key {key}",
     "Content-Type": "application/json",
 }
 
-def fal_error_message(error: httpx.HTTPStatusError) -> str:
+def log_http_error(error: httpx.HTTPStatusError) -> None:
 response = error.response
 
 print(
-    "Error HTTP de fal.ai: "
-    f"status={response.status_code}, "
-    f"body={response.text[:1000]}",
+    f"Error HTTP de fal.ai: {response.status_code}; "
+    f"respuesta: {response.text[:1000]}",
     flush=True,
-)
-return (
-    "fal.ai rechazó la solicitud. "
-    "Revisa los registros del servidor para conocer el motivo."
 )
 
 @app.get(”/”)
@@ -65,7 +60,7 @@ return {
 “nombre”: “SOMBER AI”,
 “estado”: “servidor_activo”,
 “mensaje”: “El servidor responde correctamente.”,
-“version”: “0.3.1”,
+“version”: “0.3.2”,
 }
 
 @app.get(”/health”)
@@ -126,14 +121,17 @@ try:
     response.raise_for_status()
     queued = response.json()
 except httpx.HTTPStatusError as error:
-    message = fal_error_message(error)
+    log_http_error(error)
     raise HTTPException(
         status_code=502,
-        detail=message,
+        detail=(
+            "fal.ai rechazó la solicitud. "
+            "Revisa los Logs de Render para ver el detalle."
+        ),
     ) from error
 except httpx.RequestError as error:
     print(
-        "Error de conexión con fal.ai: "
+        f"Error de conexión con fal.ai: "
         f"{type(error).__name__}: {error!r}",
         flush=True,
     )
@@ -148,7 +146,7 @@ except ValueError as error:
     )
     raise HTTPException(
         status_code=502,
-        detail="El servicio de generación devolvió una respuesta no válida.",
+        detail="fal.ai devolvió una respuesta no válida.",
     ) from error
 request_id = queued.get("request_id")
 if not request_id:
@@ -163,7 +161,7 @@ if not request_id:
 return {
     "nombre": "SOMBER AI",
     "estado": "en_cola",
-    "mensaje": "La solicitud se envió al servicio de generación.",
+    "mensaje": "La solicitud se envió a fal.ai.",
     "request_id": request_id,
     "modelo": FAL_MODEL,
     "instruccion": instruction,
@@ -175,12 +173,8 @@ return {
 def generation_status(request_id: str):
 headers = fal_headers()
 
-status_url = (
-    f"{FAL_QUEUE_URL}/requests/{request_id}/status"
-)
-result_url = (
-    f"{FAL_QUEUE_URL}/requests/{request_id}"
-)
+status_url = f"{FAL_QUEUE_URL}/requests/{request_id}/status"
+result_url = f"{FAL_QUEUE_URL}/requests/{request_id}"
 try:
     status_response = httpx.get(
         status_url,
@@ -199,18 +193,21 @@ try:
         result_response.raise_for_status()
         result_data = result_response.json()
         video = result_data.get("video") or {}
-        video_url = video.get("url") if isinstance(video, dict) else None
+        video_url = (
+            video.get("url")
+            if isinstance(video, dict)
+            else None
+        )
         if not video_url:
             print(
-                "La generación terminó, pero la respuesta "
-                f"no contiene una URL de vídeo: {result_data!r}",
+                f"No se encontró la URL del vídeo: {result_data!r}",
                 flush=True,
             )
             raise HTTPException(
                 status_code=502,
                 detail=(
                     "La generación terminó, pero no se encontró "
-                    "el enlace del vídeo en la respuesta."
+                    "el enlace del vídeo."
                 ),
             )
         return {
@@ -224,8 +221,8 @@ try:
         }
     if status in {"FAILED", "CANCELLED"}:
         print(
-            f"Generación {request_id} finalizada con "
-            f"estado {status}: {status_data!r}",
+            f"Generación {request_id}: {status}; "
+            f"detalle: {status_data!r}",
             flush=True,
         )
         return {
@@ -244,14 +241,14 @@ try:
 except HTTPException:
     raise
 except httpx.HTTPStatusError as error:
-    fal_error_message(error)
+    log_http_error(error)
     raise HTTPException(
         status_code=502,
-        detail="No se pudo consultar el estado o el resultado de la generación.",
+        detail="No se pudo consultar el estado o el resultado.",
     ) from error
 except httpx.RequestError as error:
     print(
-        "Error al consultar la generación en fal.ai: "
+        f"Error consultando fal.ai: "
         f"{type(error).__name__}: {error!r}",
         flush=True,
     )
@@ -266,5 +263,5 @@ except ValueError as error:
     )
     raise HTTPException(
         status_code=502,
-        detail="fal.ai devolvió una respuesta no válida al consultar el resultado.",
+        detail="fal.ai devolvió una respuesta no válida.",
     ) from error
