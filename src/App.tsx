@@ -57,7 +57,10 @@ export default function App() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+  text,
+  aspect: format,
+}),
       });
 
       if (!response.ok) {
