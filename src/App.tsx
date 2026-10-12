@@ -1,4 +1,18 @@
 import { useState } from "react";
+
+type ApiResult = {
+  nombre?: string;
+  etapa?: number;
+  estado?: string;
+  instruccion?: Record<string, unknown>;
+  pasos?: string[];
+  resultado?: unknown;
+  avisos?: string[];
+  entorno?: Record<string, unknown>;
+};
+
+const API_URL = "https://somber-ai-studio-api.onrender.com";
+
 const sections = [
   "Inicio",
   "Crear video",
@@ -7,52 +21,106 @@ const sections = [
   "Editor",
   "Planes",
 ];
-const GENERATOR_URL = "https://6ed441078592c106c8.gradio.live/";
+
 export default function App() {
   const [activeSection, setActiveSection] = useState("Inicio");
   const [prompt, setPrompt] = useState("");
   const [format, setFormat] = useState("16:9");
   const [notice, setNotice] = useState("");
-  const [showGenerator, setShowGenerator] = useState(false);
-  function handleCreate() {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [apiResult, setApiResult] = useState<ApiResult | null>(null);
+
+  async function handleCreate() {
     if (!prompt.trim()) {
       setNotice("Escribe una descripción para comenzar.");
+      setApiResult(null);
       return;
     }
+
     setNotice("");
-    setShowGenerator(true);
+    setApiResult(null);
+    setIsGenerating(true);
+
+    const text = [
+      prompt.trim(),
+      `Formato solicitado: ${format}.`,
+      activeSection === "Anime"
+        ? "Estilo solicitado: anime."
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    try {
+      const response = await fetch(`${API_URL}/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `El servidor respondió con el código ${response.status}.`
+        );
+      }
+
+      const data = (await response.json()) as ApiResult;
+
+      setApiResult(data);
+
+      if (data.estado === "error") {
+        setNotice(
+          "SOMBER AI recibió la solicitud, pero no pudo procesarla."
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Error desconocido.";
+
+      setNotice(
+        `No pudimos conectar con SOMBER AI. ${message} Comprueba tu conexión e inténtalo de nuevo.`
+      );
+    } finally {
+      setIsGenerating(false);
+    }
   }
+
   function openCreator(section: string) {
     setActiveSection(section);
     setNotice("");
-    setShowGenerator(false);
+    setApiResult(null);
   }
+
   return (
     <main className="app">
       <header className="topbar">
         <button
           className="brand"
-          onClick={() => {
-            setActiveSection("Inicio");
-            setShowGenerator(false);
-            setNotice("");
-          }}
+          onClick={() => openCreator("Inicio")}
           aria-label="Ir al inicio"
         >
           <span className="brand-mark">S</span>
+
           <span>
             <strong>SOMBER</strong>
             <small>AI STUDIO</small>
           </span>
         </button>
+
         <span className="status">
           <span className="status-dot" />
           Estudio creativo
         </span>
       </header>
+
       <div className="workspace">
         <aside className="sidebar">
           <p className="nav-label">WORKSPACE</p>
+
           {sections.map((section) => (
             <button
               key={section}
@@ -74,19 +142,28 @@ export default function App() {
                           ? "▣"
                           : "◇"}
               </span>
+
               {section}
             </button>
           ))}
+
           <div className="sidebar-note">
             <span className="note-icon">✧</span>
+
             <strong>Tu imaginación.</strong>
-            <p>Las herramientas creativas, en un solo lugar.</p>
+
+            <p>
+              Las herramientas creativas, en un solo lugar.
+            </p>
           </div>
         </aside>
+
         <section className="content">
           <div className="eyebrow">
-            SOMBER AI STUDIO <span>/</span> {activeSection.toUpperCase()}
+            SOMBER AI STUDIO <span>/</span>{" "}
+            {activeSection.toUpperCase()}
           </div>
+
           {activeSection === "Inicio" ? (
             <>
               <section className="hero">
@@ -94,15 +171,19 @@ export default function App() {
                   <div className="tag">
                     <span>✦</span> TU ESTUDIO CREATIVO CON IA
                   </div>
+
                   <h1>
                     Convierte tus ideas
                     <br />
                     en algo <span>extraordinario.</span>
                   </h1>
+
                   <p>
-                    Crea videos, genera imágenes y transforma tus historias
-                    en experiencias visuales con SOMBER AI STUDIO.
+                    Crea videos, genera imágenes y transforma tus
+                    historias en experiencias visuales con SOMBER AI
+                    STUDIO.
                   </p>
+
                   <button
                     className="primary-button"
                     onClick={() => openCreator("Crear video")}
@@ -110,18 +191,23 @@ export default function App() {
                     Empezar a crear <span>↗</span>
                   </button>
                 </div>
+
                 <div className="hero-art">
                   <div className="orbit orbit-one" />
                   <div className="orbit orbit-two" />
+
                   <div className="art-core">
                     <span>✳</span>
                   </div>
+
                   <div className="floating-card card-top">
                     <span className="mini-dot" />
                     Creatividad sin límites
                   </div>
+
                   <div className="floating-card card-bottom">
                     <span className="sparkle">✦</span>
+
                     <div>
                       <strong>AI CREATION</strong>
                       <small>Tu próxima gran idea</small>
@@ -129,38 +215,57 @@ export default function App() {
                   </div>
                 </div>
               </section>
+
               <div className="section-heading">
                 <div>
                   <h2>¿Qué quieres crear?</h2>
                   <p>Elige una herramienta para comenzar.</p>
                 </div>
               </div>
+
               <div className="tool-grid">
                 <button
                   className="tool-card"
                   onClick={() => openCreator("Crear video")}
                 >
                   <span className="tool-icon purple">▶</span>
+
                   <strong>Generar video</strong>
-                  <p>Convierte una idea o descripción en un video.</p>
+
+                  <p>
+                    Convierte una idea o descripción en un video.
+                  </p>
+
                   <span className="tool-arrow">↗</span>
                 </button>
+
                 <button
                   className="tool-card"
                   onClick={() => openCreator("Anime")}
                 >
                   <span className="tool-icon pink">✧</span>
+
                   <strong>Crear anime</strong>
-                  <p>Diseña personajes y escenas para tus historias.</p>
+
+                  <p>
+                    Diseña personajes y escenas para tus historias.
+                  </p>
+
                   <span className="tool-arrow">↗</span>
                 </button>
+
                 <button
                   className="tool-card"
                   onClick={() => openCreator("Editor")}
                 >
                   <span className="tool-icon blue">▣</span>
+
                   <strong>Editor creativo</strong>
-                  <p>Prepara tu espacio de trabajo audiovisual.</p>
+
+                  <p>
+                    Prepara tu espacio de trabajo audiovisual.
+                  </p>
+
                   <span className="tool-arrow">↗</span>
                 </button>
               </div>
@@ -171,116 +276,227 @@ export default function App() {
               <div className="tag">
                 <span>✦</span> HERRAMIENTA CREATIVA
               </div>
+
               <h1>
                 {activeSection === "Anime"
                   ? "Crea tu universo anime."
                   : "Dale vida a tu idea."}
               </h1>
+
               <p className="panel-description">
-                Describe tu idea y utiliza el generador experimental
-                integrado en SOMBER AI STUDIO.
+                Describe lo que imaginas. SOMBER AI enviará tu
+                instrucción a su servidor para interpretarla y preparar
+                el plan de creación.
               </p>
-              {!showGenerator ? (
-                <>
-                  <label className="field-label" htmlFor="prompt">
-                    Describe tu idea
-                  </label>
-                  <textarea
-                    id="prompt"
-                    value={prompt}
-                    onChange={(event) => {
-                      setPrompt(event.target.value);
-                      setNotice("");
-                    }}
-                    placeholder={
-                      activeSection === "Anime"
-                        ? "Ej.: un guerrero anime bajo la lluvia, luces de neón..."
-                        : "Ej.: una ciudad futurista al atardecer, cámara cinematográfica..."
-                    }
-                  />
-                  <label className="field-label" htmlFor="format">
-                    Formato del video
-                  </label>
-                  <select
-                    id="format"
-                    value={format}
-                    onChange={(event) => setFormat(event.target.value)}
-                  >
-                    <option value="16:9">Horizontal · 16:9</option>
-                    <option value="9:16">Vertical · 9:16</option>
-                    <option value="1:1">Cuadrado · 1:1</option>
-                  </select>
-                  <button
-                    className="primary-button create-button"
-                    onClick={handleCreate}
-                  >
-                    Abrir generador de vídeo <span>✦</span>
-                  </button>
-                  {notice && (
-                    <p className="notice" role="status">
-                      {notice}
-                    </p>
-                  )}
-                  <p className="helper">
-                    Formato seleccionado: {format}. El generador se mostrará
-                    debajo de este formulario.
-                  </p>
-                </>
-              ) : (
-                <div className="embedded-generator">
+
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleCreate();
+                }}
+              >
+                <label className="field-label" htmlFor="prompt">
+                  Describe tu idea
+                </label>
+
+                <textarea
+                  id="prompt"
+                  value={prompt}
+                  onChange={(event) => {
+                    setPrompt(event.target.value);
+                    setNotice("");
+                  }}
+                  placeholder={
+                    activeSection === "Anime"
+                      ? "Ej.: un guerrero anime bajo la lluvia, luces de neón..."
+                      : "Ej.: una ciudad futurista al atardecer, cámara cinematográfica..."
+                  }
+                  disabled={isGenerating}
+                  required
+                />
+
+                <label className="field-label" htmlFor="format">
+                  Formato del video
+                </label>
+
+                <select
+                  id="format"
+                  value={format}
+                  onChange={(event) => setFormat(event.target.value)}
+                  disabled={isGenerating}
+                >
+                  <option value="16:9">Horizontal · 16:9</option>
+                  <option value="9:16">Vertical · 9:16</option>
+                  <option value="1:1">Cuadrado · 1:1</option>
+                </select>
+
+                <button
+                  className="primary-button create-button"
+                  type="submit"
+                  disabled={isGenerating}
+                >
+                  {isGenerating
+                    ? "Conectando con SOMBER AI..."
+                    : "Procesar instrucción"}
+
+                  <span>✦</span>
+                </button>
+              </form>
+
+              {notice && (
+                <p className="notice" role="status">
+                  {notice}
+                </p>
+              )}
+
+              {isGenerating && (
+                <div
+                  className="notice"
+                  role="status"
+                  aria-live="polite"
+                >
+                  Enviando tu instrucción a SOMBER AI. La primera
+                  conexión puede tardar unos segundos mientras se
+                  activa el servidor.
+                </div>
+              )}
+
+              <p className="helper">
+                Formato seleccionado: {format}. En esta primera etapa,
+                SOMBER AI interpreta las instrucciones y prepara el
+                plan. La generación real de videos se integrará después.
+              </p>
+
+              {apiResult && (
+                <section
+                  className="creator-result"
+                  aria-live="polite"
+                >
                   <div className="section-heading">
                     <div>
-                      <h2>Generador de vídeo con IA</h2>
+                      <h2>Respuesta de SOMBER AI</h2>
+
                       <p>
-                        Escribe tu descripción en el generador y pulsa
-                        el botón para crear tu vídeo.
+                        El servidor ha recibido y procesado tu
+                        instrucción.
                       </p>
                     </div>
+
+                    <span className="status">
+                      {apiResult.estado || "Procesado"}
+                    </span>
                   </div>
-                  <div
-                    style={{
-                      width: "100%",
-                      minHeight: "650px",
-                      overflow: "hidden",
-                      borderRadius: "16px",
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      background: "#171522",
-                    }}
-                  >
-                    <iframe
-                      title="Generador de vídeo SOMBER AI STUDIO"
-                      src={GENERATOR_URL}
-                      style={{
-                        display: "block",
-                        width: "100%",
-                        height: "650px",
-                        border: "0",
-                        background: "#171522",
-                      }}
-                      allow="clipboard-read; clipboard-write"
-                      loading="lazy"
-                    />
+
+                  <div className="result-summary">
+                    <h3>
+                      {apiResult.nombre || "SOMBER AI"}
+                    </h3>
+
+                    <p>
+                      Etapa {apiResult.etapa ?? 1}: interpretación
+                      y preparación del plan.
+                    </p>
+
+                    {apiResult.instruccion && (
+                      <>
+                        <h3>Instrucción interpretada</h3>
+
+                        <pre
+                          style={{
+                            whiteSpace: "pre-wrap",
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          {JSON.stringify(
+                            apiResult.instruccion,
+                            null,
+                            2
+                          )}
+                        </pre>
+                      </>
+                    )}
+
+                    {apiResult.pasos &&
+                      apiResult.pasos.length > 0 && (
+                        <>
+                          <h3>Pasos previstos</h3>
+
+                          <ol>
+                            {apiResult.pasos.map((paso, index) => (
+                              <li key={`${paso}-${index}`}>
+                                {paso}
+                              </li>
+                            ))}
+                          </ol>
+                        </>
+                      )}
+
+                    {apiResult.avisos &&
+                      apiResult.avisos.length > 0 && (
+                        <>
+                          <h3>Información importante</h3>
+
+                          <ul>
+                            {apiResult.avisos.map(
+                              (aviso, index) => (
+                                <li key={`${aviso}-${index}`}>
+                                  {aviso}
+                                </li>
+                              )
+                            )}
+                          </ul>
+                        </>
+                      )}
+
+                    {apiResult.entorno &&
+                      typeof apiResult.entorno.motivo ===
+                        "string" && (
+                        <>
+                          <h3>Estado del motor</h3>
+
+                          <p>
+                            {apiResult.entorno.motivo}
+                          </p>
+                        </>
+                      )}
+
+                    {apiResult.resultado == null && (
+                      <p className="helper">
+                        Todavía no se ha generado un archivo de video.
+                        El motor audiovisual está pendiente de
+                        integración.
+                      </p>
+                    )}
+
+                    <details>
+                      <summary>
+                        Ver respuesta técnica completa
+                      </summary>
+
+                      <pre
+                        style={{
+                          whiteSpace: "pre-wrap",
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {JSON.stringify(apiResult, null, 2)}
+                      </pre>
+                    </details>
                   </div>
-                  <p className="helper">
-                    Generador experimental. Debe estar activo para que
-                    puedas crear vídeos.
-                  </p>
-                  <button
-                    className="secondary-button"
-                    onClick={() => setShowGenerator(false)}
-                  >
-                    Volver al formulario
-                  </button>
-                </div>
+                </section>
               )}
             </section>
           ) : (
             <section className="empty-panel">
               <div className="empty-icon">✦</div>
+
               <h1>{activeSection}</h1>
+
               <p>
-                Estamos preparando esta sección para integrarla en tu estudio.
+                Estamos preparando esta sección para integrarla
+                en tu estudio.
               </p>
+
               <button
                 className="secondary-button"
                 onClick={() => openCreator("Inicio")}
@@ -289,9 +505,13 @@ export default function App() {
               </button>
             </section>
           )}
+
           <footer className="footer">
             <span>© 2026 SOMBER AI STUDIO</span>
-            <span>CREATIVIDAD · TECNOLOGÍA · IMAGINACIÓN</span>
+
+            <span>
+              CREATIVIDAD · TECNOLOGÍA · IMAGINACIÓN
+            </span>
           </footer>
         </section>
       </div>
