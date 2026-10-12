@@ -1,267 +1,269 @@
 import os
-
+import logging
+from typing import Any
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-
-from somber_ai.core import SomberAI
-
+# =========================================================
+# CONFIGURACIÓN
+# =========================================================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("somber-ai")
 app = FastAPI(
-title=“SOMBER AI API”,
-description=“Servidor central de SOMBER AI STUDIO”,
-version=“0.3.2”,
+    title="SOMBER AI API",
+    description="Servidor central de SOMBER AI STUDIO",
+    version="1.0.0",
 )
-
 app.add_middleware(
-CORSMiddleware,
-allow_origins=[””],
-allow_credentials=False,
-allow_methods=[””],
-allow_headers=[”*”],
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-ai = SomberAI()
-
-FAL_MODEL = “fal-ai/pixverse/v5.5/text-to-video”
-FAL_QUEUE_URL = f”https://queue.fal.run/{FAL_MODEL}”
-
+FAL_KEY = os.getenv("FAL_KEY")
+FAL_MODEL = "fal-ai/pixverse/v5.5/text-to-video"
+FAL_QUEUE_URL = f"https://queue.fal.run/{FAL_MODEL}"
+HTTP_TIMEOUT = 60.0
+# =========================================================
+# MODELOS DE DATOS
+# =========================================================
 class GenerateRequest(BaseModel):
-text: str = Field(min_length=1, max_length=10000)
-source_path: str | None = None
-aspect: str | None = None
-duration_sec: int | None = Field(default=None, ge=1, le=10)
-
-def fal_headers() -> dict[str, str]:
-key = os.getenv(“FAL_KEY”)
-
-if not key:
-    raise HTTPException(
-        status_code=503,
-        detail="FAL_KEY no está configurada en Render.",
+    text: str = Field(
+        ...,
+        min_length=3,
+        max_length=2000,
+        description="Descripción del vídeo que se desea generar",
     )
-return {
-    "Authorization": f"Key {key}",
-    "Content-Type": "application/json",
-}
-
-def log_http_error(error: httpx.HTTPStatusError) -> None:
-response = error.response
-
-print(
-    f"Error HTTP de fal.ai: {response.status_code}; "
-    f"respuesta: {response.text[:1000]}",
-    flush=True,
-)
-
-@app.get(”/”)
-def home():
-return {
-“nombre”: “SOMBER AI”,
-“estado”: “servidor_activo”,
-“mensaje”: “El servidor responde correctamente.”,
-“version”: “0.3.2”,
-}
-
-@app.get(”/health”)
-def health():
-return {
-“estado”: “activo”,
-“servicio”: “SOMBER AI”,
-}
-
-@app.post(”/generate”)
-def generate(request: GenerateRequest):
-if not request.text.strip():
-raise HTTPException(
-status_code=400,
-detail=“Escribe una instrucción para la IA.”,
-)
-
-if request.aspect is not None and request.aspect not in {
-    "16:9",
-    "9:16",
-    "1:1",
-}:
-    raise HTTPException(
-        status_code=422,
-        detail="Formato no válido. Usa 16:9, 9:16 o 1:1.",
+    aspect: str = Field(
+        default="9:16",
+        description="Formato del vídeo: 9:16, 16:9 o 1:1",
     )
-try:
-    plan = ai.run(
-        text=request.text,
-        source_path=request.source_path,
-        aspect=request.aspect,
-        duration_sec=request.duration_sec,
+    duration_sec: int = Field(
+        default=5,
+        ge=5,
+        le=15,
+        description="Duración solicitada del vídeo en segundos",
     )
-except ValueError as error:
-    raise HTTPException(
-        status_code=400,
-        detail=str(error),
-    ) from error
-instruction = plan["instruccion"]
-if instruction["modo"] != "texto_a_video":
-    return plan
-headers = fal_headers()
-payload = {
-    "prompt": instruction["texto"],
-    "aspect_ratio": instruction["formato"],
-    "duration": instruction["duracion_segundos"],
-    "resolution": "720p",
-    "generate_audio": False,
-    "enable_safety_checker": True,
-}
-try:
-    response = httpx.post(
-        FAL_QUEUE_URL,
-        headers=headers,
-        json=payload,
-        timeout=60.0,
-    )
-    response.raise_for_status()
-    queued = response.json()
-except httpx.HTTPStatusError as error:
-    log_http_error(error)
-    raise HTTPException(
-        status_code=502,
-        detail=(
-            "fal.ai rechazó la solicitud. "
-            "Revisa los Logs de Render para ver el detalle."
-        ),
-    ) from error
-except httpx.RequestError as error:
-    print(
-        f"Error de conexión con fal.ai: "
-        f"{type(error).__name__}: {error!r}",
-        flush=True,
-    )
-    raise HTTPException(
-        status_code=502,
-        detail="No se pudo conectar con el servicio de generación.",
-    ) from error
-except ValueError as error:
-    print(
-        f"Respuesta JSON no válida de fal.ai: {error!r}",
-        flush=True,
-    )
-    raise HTTPException(
-        status_code=502,
-        detail="fal.ai devolvió una respuesta no válida.",
-    ) from error
-request_id = queued.get("request_id")
-if not request_id:
-    print(
-        f"fal.ai no devolvió request_id: {queued!r}",
-        flush=True,
-    )
-    raise HTTPException(
-        status_code=502,
-        detail="fal.ai no devolvió un identificador de solicitud.",
-    )
-return {
-    "nombre": "SOMBER AI",
-    "estado": "en_cola",
-    "mensaje": "La solicitud se envió a fal.ai.",
-    "request_id": request_id,
-    "modelo": FAL_MODEL,
-    "instruccion": instruction,
-    "resultado": None,
-    "consulta": f"/generate/{request_id}",
-}
-
-@app.get(”/generate/{request_id}”)
-def generation_status(request_id: str):
-headers = fal_headers()
-
-status_url = f"{FAL_QUEUE_URL}/requests/{request_id}/status"
-result_url = f"{FAL_QUEUE_URL}/requests/{request_id}"
-try:
-    status_response = httpx.get(
-        status_url,
-        headers=headers,
-        timeout=30.0,
-    )
-    status_response.raise_for_status()
-    status_data = status_response.json()
-    status = status_data.get("status", "UNKNOWN")
-    if status == "COMPLETED":
-        result_response = httpx.get(
-            result_url,
-            headers=headers,
-            timeout=60.0,
+# =========================================================
+# RUTAS PRINCIPALES
+# =========================================================
+@app.get("/")
+async def home():
+    return {
+        "nombre": "SOMBER AI",
+        "estado": "servidor_activo",
+        "mensaje": "El servidor responde correctamente.",
+        "version": "1.0.0",
+    }
+@app.get("/health")
+async def health():
+    return {
+        "estado": "activo",
+        "servicio": "SOMBER AI",
+        "fal_configurado": bool(FAL_KEY),
+    }
+@app.get("/models")
+async def models():
+    return {
+        "modelos": [
+            {
+                "id": FAL_MODEL,
+                "tipo": "text-to-video",
+                "descripcion": "Generación de vídeos a partir de texto",
+            }
+        ]
+    }
+# =========================================================
+# GENERAR VÍDEOS
+# =========================================================
+@app.post("/generate")
+async def generate_video(request: GenerateRequest):
+    if not FAL_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "FAL_KEY no está configurada. "
+                "Añade la variable secreta en la configuración "
+                "del servicio de Render."
+            ),
         )
-        result_response.raise_for_status()
-        result_data = result_response.json()
-        video = result_data.get("video") or {}
-        video_url = (
-            video.get("url")
-            if isinstance(video, dict)
-            else None
+    allowed_aspects = {"9:16", "16:9", "1:1"}
+    if request.aspect not in allowed_aspects:
+        raise HTTPException(
+            status_code=400,
+            detail="El formato debe ser 9:16, 16:9 o 1:1.",
         )
-        if not video_url:
-            print(
-                f"No se encontró la URL del vídeo: {result_data!r}",
-                flush=True,
+    headers = {
+        "Authorization": f"Key {FAL_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    payload = {
+        "prompt": request.text,
+        "aspect_ratio": request.aspect,
+        "duration": str(request.duration_sec),
+        "resolution": "720p",
+        "generate_audio": False,
+        "enable_safety_checker": True,
+    }
+    try:
+        async with httpx.AsyncClient(
+            timeout=HTTP_TIMEOUT
+        ) as client:
+            response = await client.post(
+                FAL_QUEUE_URL,
+                headers=headers,
+                json=payload,
+            )
+        if response.status_code >= 400:
+            logger.error(
+                "Error de fal.ai al iniciar generación: %s",
+                response.text[:1000],
             )
             raise HTTPException(
                 status_code=502,
-                detail=(
-                    "La generación terminó, pero no se encontró "
-                    "el enlace del vídeo."
-                ),
+                detail={
+                    "mensaje": (
+                        "fal.ai rechazó la solicitud de generación."
+                    ),
+                    "estado": response.status_code,
+                    "respuesta": response.text[:1000],
+                },
+            )
+        data = response.json()
+        request_id = data.get("request_id")
+        status_url = data.get("status_url")
+        response_url = data.get("response_url")
+        if not request_id:
+            logger.error(
+                "Respuesta inesperada de fal.ai: %s",
+                str(data)[:1000],
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="fal.ai no devolvió un identificador de solicitud.",
             )
         return {
-            "nombre": "SOMBER AI",
-            "estado": "completado",
+            "estado": "procesando",
             "request_id": request_id,
-            "resultado": {
-                "video_url": video_url,
-                "video": video,
-            },
+            "status_url": status_url,
+            "response_url": response_url,
+            "mensaje": "La solicitud de generación se ha enviado.",
         }
-    if status in {"FAILED", "CANCELLED"}:
-        print(
-            f"Generación {request_id}: {status}; "
-            f"detalle: {status_data!r}",
-            flush=True,
+    except HTTPException:
+        raise
+    except httpx.TimeoutException:
+        logger.exception("Tiempo de espera agotado al conectar con fal.ai")
+        raise HTTPException(
+            status_code=504,
+            detail="fal.ai tardó demasiado en responder.",
         )
-        return {
-            "nombre": "SOMBER AI",
-            "estado": status.lower(),
-            "request_id": request_id,
-            "mensaje": "La generación no se completó.",
-            "detalle": status_data,
-        }
-    return {
-        "nombre": "SOMBER AI",
-        "estado": status.lower(),
-        "request_id": request_id,
-        "mensaje": "El vídeo todavía se está procesando.",
+    except httpx.HTTPError:
+        logger.exception("Error de conexión con fal.ai")
+        raise HTTPException(
+            status_code=502,
+            detail="No se pudo conectar con el servicio de generación.",
+        )
+    except Exception:
+        logger.exception("Error inesperado al iniciar la generación")
+        raise HTTPException(
+            status_code=500,
+            detail="Se produjo un error interno al generar el vídeo.",
+        )
+# =========================================================
+# CONSULTAR ESTADO DE GENERACIÓN
+# =========================================================
+@app.get("/generate/{request_id}")
+async def get_video_status(request_id: str):
+    if not FAL_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="FAL_KEY no está configurada en Render.",
+        )
+    if not request_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="El identificador de la solicitud está vacío.",
+        )
+    headers = {
+        "Authorization": f"Key {FAL_KEY}",
+        "Accept": "application/json",
     }
-except HTTPException:
-    raise
-except httpx.HTTPStatusError as error:
-    log_http_error(error)
-    raise HTTPException(
-        status_code=502,
-        detail="No se pudo consultar el estado o el resultado.",
-    ) from error
-except httpx.RequestError as error:
-    print(
-        f"Error consultando fal.ai: "
-        f"{type(error).__name__}: {error!r}",
-        flush=True,
+    status_url = (
+        f"{FAL_QUEUE_URL}/requests/{request_id}/status"
     )
-    raise HTTPException(
-        status_code=502,
-        detail="No se pudo conectar con fal.ai para consultar el resultado.",
-    ) from error
-except ValueError as error:
-    print(
-        f"Respuesta JSON no válida al consultar fal.ai: {error!r}",
-        flush=True,
+    result_url = (
+        f"{FAL_QUEUE_URL}/requests/{request_id}"
     )
-    raise HTTPException(
-        status_code=502,
-        detail="fal.ai devolvió una respuesta no válida.",
-    ) from error
+    try:
+        async with httpx.AsyncClient(
+            timeout=HTTP_TIMEOUT
+        ) as client:
+            status_response = await client.get(
+                status_url,
+                headers=headers,
+            )
+            if status_response.status_code >= 400:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "No se pudo consultar el estado de generación "
+                        "en fal.ai."
+                    ),
+                )
+            status_data = status_response.json()
+            status = status_data.get("status", "UNKNOWN")
+            result = {
+                "request_id": request_id,
+                "estado": status,
+                "detalles": status_data,
+            }
+            if status == "COMPLETED":
+                result_response = await client.get(
+                    result_url,
+                    headers=headers,
+                )
+                if result_response.status_code >= 400:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            "El vídeo terminó de procesarse, "
+                            "pero no se pudo recuperar el resultado."
+                        ),
+                    )
+                result_data: dict[str, Any] = result_response.json()
+                video_data = result_data.get("video", {})
+                video_url = (
+                    video_data.get("url")
+                    if isinstance(video_data, dict)
+                    else None
+                )
+                result["resultado"] = result_data
+                result["video_url"] = video_url
+            elif status in {"FAILED", "CANCELLED"}:
+                result["mensaje"] = (
+                    "La generación no terminó correctamente."
+                )
+            return result
+    except HTTPException:
+        raise
+    except httpx.TimeoutException:
+        logger.exception("Tiempo de espera al consultar fal.ai")
+        raise HTTPException(
+            status_code=504,
+            detail="La consulta a fal.ai tardó demasiado.",
+        )
+    except httpx.HTTPError:
+        logger.exception("Error de conexión al consultar fal.ai")
+        raise HTTPException(
+            status_code=502,
+            detail="No se pudo conectar con fal.ai para consultar el vídeo.",
+        )
+    except Exception:
+        logger.exception("Error inesperado al consultar el vídeo")
+        raise HTTPException(
+            status_code=500,
+            detail="Se produjo un error al consultar el vídeo.",
+        )
