@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type ApiResult = {
   nombre?: string;
@@ -20,6 +20,7 @@ const SCREENS = [
   "Proyectos",
   "Nube",
   "Planes",
+  "Pago",
   "Panel",
   "Cuenta",
 ] as const;
@@ -47,6 +48,32 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [session, setSession] = useState("");
+  const [files, setFiles] = useState<{ id: string; name: string; type: string; url: string }[]>([]);
+  const [planActivo, setPlanActivo] = useState("Básico");
+  const [planElegido, setPlanElegido] = useState("Pro");
+
+  useEffect(() => {
+    setPlanActivo(localStorage.getItem("somber-plan-activa") || "Básico");
+    const request = indexedDB.open("somber-studio", 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("files", { keyPath: "id" });
+    request.onsuccess = () => {
+      const read = request.result.transaction("files").objectStore("files").getAll();
+      read.onsuccess = () => {
+        const rows = read.result as { id: string; name: string; type: string; blob: Blob }[];
+        setFiles(rows.map((row) => ({ id: row.id, name: row.name, type: row.type, url: URL.createObjectURL(row.blob) })));
+      };
+    };
+  }, []);
+
+  function saveDeviceFile(file: File) {
+    const id = crypto.randomUUID();
+    const request = indexedDB.open("somber-studio", 1);
+    request.onsuccess = () => {
+      const tx = request.result.transaction("files", "readwrite");
+      tx.objectStore("files").put({ id, name: file.name, type: file.type, blob: file });
+      tx.oncomplete = () => setFiles((current) => [{ id, name: file.name, type: file.type, url: URL.createObjectURL(file) }, ...current]);
+    };
+  }
 
   async function handleCreate(kind: "video" | "anime") {
     if (prompt.trim().length < 8) {
@@ -208,16 +235,20 @@ export default function App() {
           {screen === "Editor" ? (
             <>
               <h1>Editor de video</h1>
-              <div className="player">Vista previa del montaje</div>
+              {files.find((file) => file.type.startsWith("video/")) ? (
+                <video className="player" controls src={files.find((file) => file.type.startsWith("video/"))?.url} />
+              ) : (
+                <div className="player">Sube un video en Nube para verlo aquí</div>
+              )}
               <div className="lane"><span>Video</span><i /></div>
               <div className="lane"><span>Audio</span><b /></div>
-              <p className="muted">El montaje con archivos reales está en el estudio conectado a tu cuenta.</p>
+              <button className="btn" onClick={() => setScreen("Nube")}>Abrir archivos</button>
             </>
           ) : null}
 
-          {screen === "Proyectos" || screen === "Nube" ? (
+          {screen === "Proyectos" ? (
             <>
-              <h1>{screen === "Nube" ? "Mi nube" : "Mis proyectos"}</h1>
+              <h1>Mis proyectos</h1>
               <div className="grid">
                 {PROJECTS.map(([name, ratio, src]) => (
                   <article key={name} className="tile">
@@ -226,6 +257,34 @@ export default function App() {
                       <strong>{name}</strong>
                       <small>{ratio}</small>
                     </div>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {screen === "Nube" ? (
+            <>
+              <h1>Mi nube</h1>
+              <label className="btn">
+                Subir desde el dispositivo
+                <input
+                  className="sr"
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) saveDeviceFile(file);
+                  }}
+                />
+              </label>
+              <div className="grid">
+                {files.length === 0 ? <p className="muted">Todavía no hay archivos de tu dispositivo.</p> : null}
+                {files.map((file) => (
+                  <article key={file.id} className="tile">
+                    {file.type.startsWith("video/") ? <video src={file.url} controls /> : <img src={file.url} alt={file.name} />}
+                    <div><strong>{file.name}</strong></div>
                   </article>
                 ))}
               </div>
@@ -245,11 +304,36 @@ export default function App() {
                     <h2>{name}</h2>
                     <p className="price">{price}<small>/mes</small></p>
                     <p className="muted">{text}</p>
-                    <button className="btn wide" onClick={() => setScreen(name === "Básico" ? "Crear video" : "Cuenta")}>{action}</button>
+                    <button className="btn wide" onClick={() => { setPlanElegido(name); setScreen("Pago"); }}>{action}</button>
                   </article>
                 ))}
               </div>
               <p className="muted">El cobro automático todavía no está conectado.</p>
+            </>
+          ) : null}
+
+          {screen === "Pago" ? (
+            <>
+              <h1>Pago y suscripciones</h1>
+              <p className="muted">Plan activo en este navegador: {planActivo}. Confirmar no cobra una tarjeta.</p>
+              <div className="plans">
+                {["Básico", "Pro", "Estudio"].map((name) => (
+                  <button key={name} className={planElegido === name ? "card pop" : "card"} onClick={() => setPlanElegido(name)}>
+                    <h2>{name}</h2>
+                  </button>
+                ))}
+              </div>
+              <button
+                className="btn"
+                onClick={() => {
+                  localStorage.setItem("somber-plan-activa", planElegido);
+                  setPlanActivo(planElegido);
+                  setNotice(`Plan ${planElegido} activo. No se hizo ningún cobro.`);
+                }}
+              >
+                Activar {planElegido}
+              </button>
+              {notice ? <p className="notice">{notice}</p> : null}
             </>
           ) : null}
 
