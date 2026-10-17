@@ -29,6 +29,14 @@ type Screen = (typeof SCREENS)[number] | "Entrar";
 
 const base = import.meta.env.BASE_URL;
 const COVERS = [`${base}gallery/hero.jpg`, `${base}gallery/neon.jpg`, `${base}gallery/mesa.jpg`, `${base}gallery/portrait.jpg`];
+const STYLES = [
+  ["Cinemático", "cinematico"],
+  ["Anime", "anime"],
+  ["Cyberpunk", "cyberpunk"],
+  ["Documental", "documental"],
+  ["Noir", "noir"],
+  ["Acuarela", "acuarela"],
+] as const;
 const PROJECTS = [
   ["Batalla épica", "16:9", COVERS[0]],
   ["Paisaje futurista", "16:9", COVERS[1]],
@@ -41,7 +49,7 @@ export default function App() {
   const [prompt, setPrompt] = useState("");
   const [format, setFormat] = useState("16:9");
   const [seconds, setSeconds] = useState("5s");
-  const [look, setLook] = useState("Acción");
+  const [look, setLook] = useState("Cinemático");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setApiResult] = useState<ApiResult | null>(null);
@@ -51,6 +59,11 @@ export default function App() {
   const [files, setFiles] = useState<{ id: string; name: string; type: string; url: string }[]>([]);
   const [planActivo, setPlanActivo] = useState("Básico");
   const [planElegido, setPlanElegido] = useState("Pro");
+
+  useEffect(() => {
+    if (screen === "Anime") setLook((current) => (current === "Cinemático" || current === "Cyberpunk" || current === "Documental" || current === "Acuarela" || current === "Anime" ? "Shonen épico" : current));
+    if (screen === "Crear video") setLook((current) => (STYLES.some(([name]) => name === current) ? current : "Cinemático"));
+  }, [screen]);
 
   useEffect(() => {
     setPlanActivo(localStorage.getItem("somber-plan-activa") || "Básico");
@@ -83,7 +96,7 @@ export default function App() {
     setNotice("");
     setApiResult(null);
     setBusy(true);
-    const text = [prompt.trim(), `Formato: ${format}.`, `Duración: ${seconds}.`, kind === "anime" ? `Estilo anime: ${look}.` : ""]
+    const text = [prompt.trim(), `Estilo: ${look}.`, `Formato: ${format}.`, `Duración: ${seconds}.`]
       .filter(Boolean)
       .join("\n");
     try {
@@ -186,15 +199,24 @@ export default function App() {
                 <h1>{screen === "Anime" ? "Crea videos de anime con IA" : "Crear un nuevo video"}</h1>
                 <p className="muted">Describe tu idea y deja que la IA la haga realidad.</p>
                 <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Ejemplo: Un dragón volando sobre un castillo medieval al atardecer…" />
-                {screen === "Anime" ? (
-                  <div className="chips">
-                    {["Acción", "Romance", "Ciencia ficción", "Fantasía"].map((item) => (
-                      <button type="button" key={item} className={look === item ? "on" : ""} onClick={() => setLook(item)}>
-                        {item}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+                <p className="muted">Estilo</p>
+                <div className="styles">
+                  {(screen === "Anime"
+                    ? [
+                        ["Shonen épico", "shonen"],
+                        ["Ghibli suave", "ghibli"],
+                        ["Noir urbano", "noir"],
+                        ["Mecha nocturno", "mecha"],
+                        ["Romance pastel", "romance"],
+                      ]
+                    : STYLES
+                  ).map(([name, file]) => (
+                    <button type="button" key={name} className={look === name ? "style-card on" : "style-card"} onClick={() => setLook(name)}>
+                      <img src={`${base}gallery/styles/${file}.jpg`} alt="" />
+                      <span>{name}{look === name ? " · elegido" : ""}</span>
+                    </button>
+                  ))}
+                </div>
                 <p className="muted">Relación de aspecto</p>
                 <div className="chips">
                   {["16:9", "9:16", "1:1"].map((item) => (
