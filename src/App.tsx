@@ -6,518 +6,298 @@ type ApiResult = {
   estado?: string;
   instruccion?: Record<string, unknown>;
   pasos?: string[];
-  resultado?: unknown;
   avisos?: string[];
   entorno?: Record<string, unknown>;
+  resultado?: unknown;
 };
 
 const API_URL = "https://somber-ai-studio-api.onrender.com";
-
-const sections = [
+const SCREENS = [
   "Inicio",
   "Crear video",
   "Anime",
-  "Proyectos",
   "Editor",
+  "Proyectos",
+  "Nube",
   "Planes",
-];
+  "Panel",
+  "Cuenta",
+] as const;
+
+type Screen = (typeof SCREENS)[number] | "Entrar";
+
+const base = import.meta.env.BASE_URL;
+const COVERS = [`${base}gallery/hero.jpg`, `${base}gallery/neon.jpg`, `${base}gallery/mesa.jpg`, `${base}gallery/portrait.jpg`];
+const PROJECTS = [
+  ["Batalla épica", "16:9", COVERS[0]],
+  ["Paisaje futurista", "16:9", COVERS[1]],
+  ["Anime · Guerrero", "1:1", COVERS[3]],
+  ["Ciudad nocturna", "9:16", COVERS[2]],
+] as const;
 
 export default function App() {
-  const [activeSection, setActiveSection] = useState("Inicio");
+  const [screen, setScreen] = useState<Screen>("Inicio");
   const [prompt, setPrompt] = useState("");
   const [format, setFormat] = useState("16:9");
+  const [seconds, setSeconds] = useState("5s");
+  const [look, setLook] = useState("Acción");
   const [notice, setNotice] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [apiResult, setApiResult] = useState<ApiResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setApiResult] = useState<ApiResult | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [session, setSession] = useState("");
 
-  async function handleCreate() {
-    if (!prompt.trim()) {
-      setNotice("Escribe una descripción para comenzar.");
-      setApiResult(null);
+  async function handleCreate(kind: "video" | "anime") {
+    if (prompt.trim().length < 8) {
+      setNotice("Escribe una descripción un poco más larga.");
       return;
     }
-
     setNotice("");
     setApiResult(null);
-    setIsGenerating(true);
-
-    const text = [
-      prompt.trim(),
-      `Formato solicitado: ${format}.`,
-      activeSection === "Anime"
-        ? "Estilo solicitado: anime."
-        : "",
-    ]
+    setBusy(true);
+    const text = [prompt.trim(), `Formato: ${format}.`, `Duración: ${seconds}.`, kind === "anime" ? `Estilo anime: ${look}.` : ""]
       .filter(Boolean)
       .join("\n");
-
     try {
       const response = await fetch(`${API_URL}/generate`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-  text,
-  aspect: format,
-}),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, aspect: format }),
       });
-
-      if (!response.ok) {
-        throw new Error(
-          `El servidor respondió con el código ${response.status}.`
-        );
-      }
-
+      if (!response.ok) throw new Error(`El servidor respondió ${response.status}.`);
       const data = (await response.json()) as ApiResult;
-
       setApiResult(data);
-
-      if (data.estado === "error") {
-        setNotice(
-          "SOMBER AI recibió la solicitud, pero no pudo procesarla."
-        );
-      }
+      setNotice(data.estado === "error" ? "SOMBER AI recibió la idea, pero no pudo procesarla." : "Instrucción recibida.");
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Error desconocido.";
-
-      setNotice(
-        `No pudimos conectar con SOMBER AI. ${message} Comprueba tu conexión e inténtalo de nuevo.`
-      );
+      setNotice(error instanceof Error ? error.message : "No pudimos conectar con SOMBER AI.");
     } finally {
-      setIsGenerating(false);
+      setBusy(false);
     }
   }
 
-  function openCreator(section: string) {
-    setActiveSection(section);
+  function enter(event: React.FormEvent) {
+    event.preventDefault();
+    if (!email.includes("@") || password.length < 8) {
+      setNotice("Usa un correo y una contraseña de al menos 8 caracteres.");
+      return;
+    }
+    setSession(email);
     setNotice("");
-    setApiResult(null);
+    setScreen("Inicio");
   }
 
   return (
-    <main className="app">
-      <header className="topbar">
-        <button
-          className="brand"
-          onClick={() => openCreator("Inicio")}
-          aria-label="Ir al inicio"
-        >
-          <span className="brand-mark">S</span>
-
-          <span>
-            <strong>SOMBER</strong>
-            <small>AI STUDIO</small>
-          </span>
-        </button>
-
-        <span className="status">
-          <span className="status-dot" />
-          Estudio creativo
-        </span>
-      </header>
-
-      <div className="workspace">
-        <aside className="sidebar">
-          <p className="nav-label">WORKSPACE</p>
-
-          {sections.map((section) => (
-            <button
-              key={section}
-              className={`nav-item ${
-                activeSection === section ? "active" : ""
-              }`}
-              onClick={() => openCreator(section)}
-            >
-              <span className="nav-symbol">
-                {section === "Inicio"
-                  ? "⌂"
-                  : section === "Crear video"
-                    ? "✦"
-                    : section === "Anime"
-                      ? "◈"
-                      : section === "Proyectos"
-                        ? "▤"
-                        : section === "Editor"
-                          ? "▣"
-                          : "◇"}
-              </span>
-
-              {section}
-            </button>
-          ))}
-
-          <div className="sidebar-note">
-            <span className="note-icon">✧</span>
-
-            <strong>Tu imaginación.</strong>
-
-            <p>
-              Las herramientas creativas, en un solo lugar.
-            </p>
-          </div>
+    <div className="app">
+      {screen !== "Entrar" ? (
+        <aside className="side">
+          <button className="brand" onClick={() => setScreen("Inicio")}>
+            <span>S</span>
+            <strong>
+              SOMBER AI
+              <small>STUDIO</small>
+            </strong>
+          </button>
+          <nav>
+            {SCREENS.map((item) => (
+              <button key={item} className={screen === item ? "on" : ""} onClick={() => setScreen(item)}>
+                {item === "Panel" ? "Panel de control" : item === "Cuenta" ? "Configuración" : item}
+              </button>
+            ))}
+          </nav>
         </aside>
-
-        <section className="content">
-          <div className="eyebrow">
-            SOMBER AI STUDIO <span>/</span>{" "}
-            {activeSection.toUpperCase()}
-          </div>
-
-          {activeSection === "Inicio" ? (
+      ) : null}
+      <div className="main">
+        {screen !== "Entrar" ? (
+          <header className="top">
+            <input placeholder="Buscar proyectos…" onKeyDown={(event) => event.key === "Enter" && setScreen("Proyectos")} />
+            <button className="ghost" onClick={() => setScreen(session ? "Cuenta" : "Entrar")}>
+              {session ? session.split("@")[0] : "Entrar"}
+            </button>
+          </header>
+        ) : null}
+        <section className="view">
+          {screen === "Inicio" ? (
             <>
-              <section className="hero">
-                <div className="hero-copy">
-                  <div className="tag">
-                    <span>✦</span> TU ESTUDIO CREATIVO CON IA
-                  </div>
-
-                  <h1>
-                    Convierte tus ideas
-                    <br />
-                    en algo <span>extraordinario.</span>
-                  </h1>
-
-                  <p>
-                    Crea videos, genera imágenes y transforma tus
-                    historias en experiencias visuales con SOMBER AI
-                    STUDIO.
-                  </p>
-
-                  <button
-                    className="primary-button"
-                    onClick={() => openCreator("Crear video")}
-                  >
-                    Empezar a crear <span>↗</span>
-                  </button>
-                </div>
-
-                <div className="hero-art">
-                  <div className="orbit orbit-one" />
-                  <div className="orbit orbit-two" />
-
-                  <div className="art-core">
-                    <span>✳</span>
-                  </div>
-
-                  <div className="floating-card card-top">
-                    <span className="mini-dot" />
-                    Creatividad sin límites
-                  </div>
-
-                  <div className="floating-card card-bottom">
-                    <span className="sparkle">✦</span>
-
-                    <div>
-                      <strong>AI CREATION</strong>
-                      <small>Tu próxima gran idea</small>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <div className="section-heading">
-                <div>
-                  <h2>¿Qué quieres crear?</h2>
-                  <p>Elige una herramienta para comenzar.</p>
-                </div>
+              <p className="muted">Bienvenido a</p>
+              <h1>SOMBER AI STUDIO</h1>
+              <p className="muted">Convierte tus ideas en videos increíbles con el poder de la IA.</p>
+              <div className="row">
+                <input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Describe el video que quieres crear…" />
+                <button className="btn" onClick={() => setScreen("Crear video")}>Generar</button>
               </div>
-
-              <div className="tool-grid">
-                <button
-                  className="tool-card"
-                  onClick={() => openCreator("Crear video")}
-                >
-                  <span className="tool-icon purple">▶</span>
-
-                  <strong>Generar video</strong>
-
-                  <p>
-                    Convierte una idea o descripción en un video.
-                  </p>
-
-                  <span className="tool-arrow">↗</span>
-                </button>
-
-                <button
-                  className="tool-card"
-                  onClick={() => openCreator("Anime")}
-                >
-                  <span className="tool-icon pink">✧</span>
-
-                  <strong>Crear anime</strong>
-
-                  <p>
-                    Diseña personajes y escenas para tus historias.
-                  </p>
-
-                  <span className="tool-arrow">↗</span>
-                </button>
-
-                <button
-                  className="tool-card"
-                  onClick={() => openCreator("Editor")}
-                >
-                  <span className="tool-icon blue">▣</span>
-
-                  <strong>Editor creativo</strong>
-
-                  <p>
-                    Prepara tu espacio de trabajo audiovisual.
-                  </p>
-
-                  <span className="tool-arrow">↗</span>
-                </button>
+              <div className="chips">
+                <button onClick={() => setScreen("Crear video")}>Videos realistas</button>
+                <button onClick={() => setScreen("Anime")}>Estilo anime</button>
+                <button onClick={() => setScreen("Editor")}>Edición avanzada</button>
+                <button onClick={() => setScreen("Nube")}>Audio y música</button>
+              </div>
+              <h2>Proyectos recientes</h2>
+              <div className="grid">
+                {PROJECTS.map(([name, ratio, src]) => (
+                  <article key={name} className="tile">
+                    <img src={src} alt="" />
+                    <div>
+                      <strong>{name}</strong>
+                      <small>{ratio}</small>
+                    </div>
+                  </article>
+                ))}
               </div>
             </>
-          ) : activeSection === "Crear video" ||
-            activeSection === "Anime" ? (
-            <section className="creator-panel">
-              <div className="tag">
-                <span>✦</span> HERRAMIENTA CREATIVA
-              </div>
+          ) : null}
 
-              <h1>
-                {activeSection === "Anime"
-                  ? "Crea tu universo anime."
-                  : "Dale vida a tu idea."}
-              </h1>
-
-              <p className="panel-description">
-                Describe lo que imaginas. SOMBER AI enviará tu
-                instrucción a su servidor para interpretarla y preparar
-                el plan de creación.
-              </p>
-
+          {screen === "Crear video" || screen === "Anime" ? (
+            <div className="split">
               <form
+                className="card"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void handleCreate();
+                  void handleCreate(screen === "Anime" ? "anime" : "video");
                 }}
               >
-                <label className="field-label" htmlFor="prompt">
-                  Describe tu idea
-                </label>
-
-                <textarea
-                  id="prompt"
-                  value={prompt}
-                  onChange={(event) => {
-                    setPrompt(event.target.value);
-                    setNotice("");
-                  }}
-                  placeholder={
-                    activeSection === "Anime"
-                      ? "Ej.: un guerrero anime bajo la lluvia, luces de neón..."
-                      : "Ej.: una ciudad futurista al atardecer, cámara cinematográfica..."
-                  }
-                  disabled={isGenerating}
-                  required
-                />
-
-                <label className="field-label" htmlFor="format">
-                  Formato del video
-                </label>
-
-                <select
-                  id="format"
-                  value={format}
-                  onChange={(event) => setFormat(event.target.value)}
-                  disabled={isGenerating}
-                >
-                  <option value="16:9">Horizontal · 16:9</option>
-                  <option value="9:16">Vertical · 9:16</option>
-                  <option value="1:1">Cuadrado · 1:1</option>
-                </select>
-
-                <button
-                  className="primary-button create-button"
-                  type="submit"
-                  disabled={isGenerating}
-                >
-                  {isGenerating
-                    ? "Conectando con SOMBER AI..."
-                    : "Procesar instrucción"}
-
-                  <span>✦</span>
-                </button>
-              </form>
-
-              {notice && (
-                <p className="notice" role="status">
-                  {notice}
-                </p>
-              )}
-
-              {isGenerating && (
-                <div
-                  className="notice"
-                  role="status"
-                  aria-live="polite"
-                >
-                  Enviando tu instrucción a SOMBER AI. La primera
-                  conexión puede tardar unos segundos mientras se
-                  activa el servidor.
+                <h1>{screen === "Anime" ? "Crea videos de anime con IA" : "Crear un nuevo video"}</h1>
+                <p className="muted">Describe tu idea y deja que la IA la haga realidad.</p>
+                <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Ejemplo: Un dragón volando sobre un castillo medieval al atardecer…" />
+                {screen === "Anime" ? (
+                  <div className="chips">
+                    {["Acción", "Romance", "Ciencia ficción", "Fantasía"].map((item) => (
+                      <button type="button" key={item} className={look === item ? "on" : ""} onClick={() => setLook(item)}>
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <p className="muted">Relación de aspecto</p>
+                <div className="chips">
+                  {["16:9", "9:16", "1:1"].map((item) => (
+                    <button type="button" key={item} className={format === item ? "on" : ""} onClick={() => setFormat(item)}>
+                      {item}
+                    </button>
+                  ))}
                 </div>
-              )}
+                <p className="muted">Duración</p>
+                <div className="chips">
+                  {["5s", "10s", "20s"].map((item) => (
+                    <button type="button" key={item} className={seconds === item ? "on" : ""} onClick={() => setSeconds(item)}>
+                      {item}
+                    </button>
+                  ))}
+                </div>
+                <button className="btn wide" disabled={busy}>{busy ? "Conectando…" : "Generar"}</button>
+                {notice ? <p className="notice">{notice}</p> : null}
+                {result ? (
+                  <div className="result">
+                    <strong>{result.nombre || "SOMBER AI"}</strong>
+                    <p>Etapa {result.etapa ?? 1}. {result.estado || "Procesado"}.</p>
+                    {result.pasos?.map((step) => <p key={step}>{step}</p>)}
+                    {typeof result.entorno?.motivo === "string" ? <p>{result.entorno.motivo}</p> : null}
+                  </div>
+                ) : null}
+              </form>
+              <aside className="card tips">
+                <h2>Consejos</h2>
+                <p>Sé específico en la descripción.</p>
+                <p>Indica el estilo: anime, realista o cine.</p>
+                <p>Puedes añadir referencias.</p>
+                <p>Cuanto más detalle, mejor resultado.</p>
+              </aside>
+            </div>
+          ) : null}
 
-              <p className="helper">
-                Formato seleccionado: {format}. En esta primera etapa,
-                SOMBER AI interpreta las instrucciones y prepara el
-                plan. La generación real de videos se integrará después.
-              </p>
+          {screen === "Editor" ? (
+            <>
+              <h1>Editor de video</h1>
+              <div className="player">Vista previa del montaje</div>
+              <div className="lane"><span>Video</span><i /></div>
+              <div className="lane"><span>Audio</span><b /></div>
+              <p className="muted">El montaje con archivos reales está en el estudio conectado a tu cuenta.</p>
+            </>
+          ) : null}
 
-              {apiResult && (
-                <section
-                  className="creator-result"
-                  aria-live="polite"
-                >
-                  <div className="section-heading">
+          {screen === "Proyectos" || screen === "Nube" ? (
+            <>
+              <h1>{screen === "Nube" ? "Mi nube" : "Mis proyectos"}</h1>
+              <div className="grid">
+                {PROJECTS.map(([name, ratio, src]) => (
+                  <article key={name} className="tile">
+                    <img src={src} alt="" />
                     <div>
-                      <h2>Respuesta de SOMBER AI</h2>
-
-                      <p>
-                        El servidor ha recibido y procesado tu
-                        instrucción.
-                      </p>
+                      <strong>{name}</strong>
+                      <small>{ratio}</small>
                     </div>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : null}
 
-                    <span className="status">
-                      {apiResult.estado || "Procesado"}
-                    </span>
-                  </div>
+          {screen === "Planes" ? (
+            <>
+              <h1>Elige el plan perfecto para ti</h1>
+              <div className="plans">
+                {[
+                  ["Básico", "$0", "Plan gratuito", "Comenzar"],
+                  ["Pro", "$12", "Para creadores en crecimiento", "Mejorar plan"],
+                  ["Estudio", "$29", "Para profesionales", "Mejorar plan"],
+                ].map(([name, price, text, action]) => (
+                  <article key={name} className={name === "Pro" ? "card pop" : "card"}>
+                    <h2>{name}</h2>
+                    <p className="price">{price}<small>/mes</small></p>
+                    <p className="muted">{text}</p>
+                    <button className="btn wide" onClick={() => setScreen(name === "Básico" ? "Crear video" : "Cuenta")}>{action}</button>
+                  </article>
+                ))}
+              </div>
+              <p className="muted">El cobro automático todavía no está conectado.</p>
+            </>
+          ) : null}
 
-                  <div className="result-summary">
-                    <h3>
-                      {apiResult.nombre || "SOMBER AI"}
-                    </h3>
+          {screen === "Panel" ? (
+            <>
+              <h1>Panel de control</h1>
+              <div className="stats">
+                {[["Videos", "0"], ["Tiempo", "—"], ["Créditos", session ? "Cuenta" : "0"], ["Proyectos", "4"]].map(([label, value]) => (
+                  <article key={label} className="card"><small>{label}</small><strong>{value}</strong></article>
+                ))}
+              </div>
+            </>
+          ) : null}
 
-                    <p>
-                      Etapa {apiResult.etapa ?? 1}: interpretación
-                      y preparación del plan.
-                    </p>
+          {screen === "Cuenta" ? (
+            <>
+              <h1>Mi cuenta</h1>
+              <form className="card narrow" onSubmit={enter}>
+                <label>Correo electrónico<input value={email} onChange={(event) => setEmail(event.target.value)} type="email" /></label>
+                <p className="muted">{session ? `Sesión de esta página: ${session}` : "Entra para guardar el nombre en este navegador."}</p>
+                <button className="btn wide">Guardar cambios</button>
+              </form>
+            </>
+          ) : null}
 
-                    {apiResult.instruccion && (
-                      <>
-                        <h3>Instrucción interpretada</h3>
-
-                        <pre
-                          style={{
-                            whiteSpace: "pre-wrap",
-                            overflowWrap: "anywhere",
-                          }}
-                        >
-                          {JSON.stringify(
-                            apiResult.instruccion,
-                            null,
-                            2
-                          )}
-                        </pre>
-                      </>
-                    )}
-
-                    {apiResult.pasos &&
-                      apiResult.pasos.length > 0 && (
-                        <>
-                          <h3>Pasos previstos</h3>
-
-                          <ol>
-                            {apiResult.pasos.map((paso, index) => (
-                              <li key={`${paso}-${index}`}>
-                                {paso}
-                              </li>
-                            ))}
-                          </ol>
-                        </>
-                      )}
-
-                    {apiResult.avisos &&
-                      apiResult.avisos.length > 0 && (
-                        <>
-                          <h3>Información importante</h3>
-
-                          <ul>
-                            {apiResult.avisos.map(
-                              (aviso, index) => (
-                                <li key={`${aviso}-${index}`}>
-                                  {aviso}
-                                </li>
-                              )
-                            )}
-                          </ul>
-                        </>
-                      )}
-
-                    {apiResult.entorno &&
-                      typeof apiResult.entorno.motivo ===
-                        "string" && (
-                        <>
-                          <h3>Estado del motor</h3>
-
-                          <p>
-                            {apiResult.entorno.motivo}
-                          </p>
-                        </>
-                      )}
-
-                    {apiResult.resultado == null && (
-                      <p className="helper">
-                        Todavía no se ha generado un archivo de video.
-                        El motor audiovisual está pendiente de
-                        integración.
-                      </p>
-                    )}
-
-                    <details>
-                      <summary>
-                        Ver respuesta técnica completa
-                      </summary>
-
-                      <pre
-                        style={{
-                          whiteSpace: "pre-wrap",
-                          overflowWrap: "anywhere",
-                        }}
-                      >
-                        {JSON.stringify(apiResult, null, 2)}
-                      </pre>
-                    </details>
-                  </div>
-                </section>
-              )}
-            </section>
-          ) : (
-            <section className="empty-panel">
-              <div className="empty-icon">✦</div>
-
-              <h1>{activeSection}</h1>
-
-              <p>
-                Estamos preparando esta sección para integrarla
-                en tu estudio.
-              </p>
-
-              <button
-                className="secondary-button"
-                onClick={() => openCreator("Inicio")}
-              >
-                Volver al inicio
+          {screen === "Entrar" ? (
+            <form className="login" onSubmit={enter}>
+              <button type="button" className="brand center" onClick={() => setScreen("Inicio")}>
+                <span>S</span>
+                <strong>SOMBER AI STUDIO<small>Tu imaginación, nuestro poder.</small></strong>
               </button>
-            </section>
-          )}
-
-          <footer className="footer">
-            <span>© 2026 SOMBER AI STUDIO</span>
-
-            <span>
-              CREATIVIDAD · TECNOLOGÍA · IMAGINACIÓN
-            </span>
-          </footer>
+              <h1>Iniciar sesión</h1>
+              <label>Correo electrónico<input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required /></label>
+              <label>Contraseña<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" minLength={8} required /></label>
+              {notice ? <p className="notice">{notice}</p> : null}
+              <button className="btn wide">Iniciar sesión</button>
+              <p className="muted">La cuenta real, con créditos y generación, vive en el estudio. Aquí la sesión solo abre esta vista.</p>
+            </form>
+          ) : null}
         </section>
       </div>
-    </main>
+      <nav className="mobile">
+        {["Inicio", "Crear video", "Anime", "Proyectos", "Entrar"].map((item) => (
+          <button key={item} className={screen === item ? "on" : ""} onClick={() => setScreen(item as Screen)}>
+            {item === "Crear video" ? "Crear" : item}
+          </button>
+        ))}
+      </nav>
+    </div>
   );
 }
