@@ -211,9 +211,20 @@ export default function App() {
                       ]
                     : STYLES
                   ).map(([name, file]) => (
-                    <button type="button" key={name} className={look === name ? "style-card on" : "style-card"} onClick={() => setLook(name)}>
-                      <img src={`${base}gallery/styles/${file}.jpg`} alt="" />
-                      <span>{name}{look === name ? " · elegido" : ""}</span>
+                    <button
+                      type="button"
+                      key={name}
+                      className={look === name ? "style-card on" : "style-card"}
+                      onClick={() => {
+                        setLook(name);
+                        setNotice(`Estilo ${name} seleccionado.`);
+                      }}
+                    >
+                      <img src={`${base}gallery/styles/${file}.jpg`} alt={name} />
+                      <span className="style-label">
+                        {name}
+                        {look === name ? " · elegido" : ""}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -398,9 +409,17 @@ export default function App() {
         </section>
       </div>
       <nav className="mobile">
-        {["Inicio", "Crear video", "Anime", "Proyectos", "Entrar"].map((item) => (
-          <button key={item} className={screen === item ? "on" : ""} onClick={() => setScreen(item as Screen)}>
-            {item === "Crear video" ? "Crear" : item}
+        {(
+          [
+            ["Inicio", "Inicio"],
+            ["Crear video", "Crear"],
+            ["Anime", "Anime"],
+            ["Nube", "Nube"],
+            ["Pago", "Pago"],
+          ] as const
+        ).map(([id, label]) => (
+          <button key={id} className={screen === id ? "on" : ""} onClick={() => setScreen(id)}>
+            {label}
           </button>
         ))}
       </nav>
