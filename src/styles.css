@@ -176,3 +176,59 @@ textarea { min-height: 120px; resize: vertical; }
   .mobile button { background: none; border: 0; color: #93a0b8; min-height: 56px; font-size: 11px; }
   .mobile button.on { color: #7b61ff; }
 }
+
+.banner {
+  margin: 0;
+  padding: 10px 20px;
+  background: linear-gradient(90deg, rgba(123, 97, 255, 0.2), rgba(61, 139, 253, 0.12));
+  border-bottom: 1px solid #243049;
+  color: #cfd6ea;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.side-note {
+  margin-top: auto;
+  padding: 8px 12px;
+  color: #6b7690;
+  font-size: 11px;
+}
+.api-dot {
+  font-size: 11px;
+  color: #93a0b8;
+  border: 1px solid #243049;
+  border-radius: 999px;
+  padding: 6px 10px;
+}
+.api-dot.ok { color: #7ddea8; border-color: #2f6b4f; }
+.api-dot.bad { color: #ff8f8f; border-color: #6b2f2f; }
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid #243049;
+}
+.site-footer button, .linkish {
+  background: none;
+  border: 0;
+  color: #93a0b8;
+  text-decoration: underline;
+  padding: 0;
+  min-height: auto;
+}
+.legal { max-width: 720px; line-height: 1.55; }
+.legal h2 { margin: 20px 0 8px; font-size: 16px; }
+.legal ul { padding-left: 20px; color: #cfd6ea; }
+.job-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.job-list .card { padding: 16px; }
+.check {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  color: #93a0b8;
+  font-size: 13px;
+}
+.check input { width: auto; margin-top: 3px; }
+a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
