@@ -1,24 +1,31 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  supabase,
+  supabaseConfigured,
+  fetchProfile,
+  spendCredits,
+  refundCredits,
+  insertJob,
+  updateJob,
+  listMyJobs,
+  type Profile,
+  type JobRow,
+} from "./lib/supabase";
 
 type ApiResult = {
   nombre?: string;
-  etapa?: number;
   estado?: string;
   mensaje?: string;
   request_id?: string;
   status_url?: string;
-  response_url?: string;
   video_url?: string;
-  instruccion?: Record<string, unknown>;
   pasos?: string[];
-  avisos?: string[];
-  entorno?: Record<string, unknown>;
-  resultado?: unknown;
 };
 
 const API_URL = "https://somber-ai-studio-api.onrender.com";
+const CREDIT_COST = 1;
 const RATE_KEY = "somber-gen-ts";
-const RATE_MAX = 8;
+const RATE_MAX = 20;
 const RATE_WINDOW = 60 * 60 * 1000;
 
 const SCREENS = [
@@ -63,19 +70,18 @@ const PROJECTS = [
   ["Ciudad nocturna", "9:16", COVERS[2]],
 ] as const;
 
-function canGenerate(): boolean {
+function canGenerateLocal(): boolean {
   try {
     const raw = localStorage.getItem(RATE_KEY);
     const list: number[] = raw ? JSON.parse(raw) : [];
     const now = Date.now();
-    const recent = list.filter((t) => now - t < RATE_WINDOW);
-    return recent.length < RATE_MAX;
+    return list.filter((t) => now - t < RATE_WINDOW).length < RATE_MAX;
   } catch {
     return true;
   }
 }
 
-function markGenerate() {
+function markGenerateLocal() {
   try {
     const raw = localStorage.getItem(RATE_KEY);
     const list: number[] = raw ? JSON.parse(raw) : [];
@@ -97,11 +103,13 @@ export default function App() {
   const [result, setApiResult] = useState<ApiResult | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [session, setSession] = useState("");
+  const [modeAuth, setModeAuth] = useState<"login" | "register">("login");
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [sessionEmail, setSessionEmail] = useState("");
   const [files, setFiles] = useState<{ id: string; name: string; type: string; url: string }[]>([]);
-  const [planActivo, setPlanActivo] = useState("Básico");
+  const [planActivo, setPlanActivo] = useState("Basico");
   const [planElegido, setPlanElegido] = useState("Pro");
-  const [jobs, setJobs] = useState<{ id: string; text: string; status: string; video?: string; at: number }[]>([]);
+  const [jobs, setJobs] = useState<JobRow[]>([]);
   const [apiOk, setApiOk] = useState<boolean | null>(null);
   const pollRef = useRef<number | null>(null);
 
@@ -111,11 +119,7 @@ export default function App() {
   }, [screen]);
 
   useEffect(() => {
-    setPlanActivo(localStorage.getItem("somber-plan-activa") || "Básico");
-    try {
-      const j = localStorage.getItem("somber-jobs");
-      if (j) setJobs(JSON.parse(j));
-    } catch {}
+    setPlanActivo(localStorage.getItem("somber-plan-activa") || "Basico");
     const request = indexedDB.open("somber-studio", 1);
     request.onupgradeneeded = () => request.result.createObjectStore("files", { keyPath: "id" });
     request.onsuccess = () => {
@@ -125,9 +129,49 @@ export default function App() {
         setFiles(rows.map((row) => ({ id: row.id, name: row.name, type: row.type, url: URL.createObjectURL(row.blob) })));
       };
     };
-    fetch(`${API_URL}/health`).then((r) => r.json()).then((d) => setApiOk(!!d?.fal_configurado || d?.estado === "ok")).catch(() => setApiOk(false));
+    fetch(`${API_URL}/health`)
+      .then((r) => r.json())
+      .then((d) => setApiOk(!!d?.fal_configurado || d?.estado === "activo"))
+      .catch(() => setApiOk(false));
+
+    if (!supabase) return;
+
+    supabase.auth.getSession().then(async ({ data }) => {
+      const user = data.session?.user;
+      if (!user) return;
+      setSessionEmail(user.email || "");
+      try {
+        const p = await fetchProfile(user.id);
+        setProfile(p);
+        if (p?.plan) setPlanActivo(p.plan);
+        setJobs(await listMyJobs(20));
+      } catch (e) {
+        console.error(e);
+      }
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const user = session?.user;
+      if (!user) {
+        setSessionEmail("");
+        setProfile(null);
+        setJobs([]);
+        return;
+      }
+      setSessionEmail(user.email || "");
+      try {
+        const p = await fetchProfile(user.id);
+        setProfile(p);
+        if (p?.plan) setPlanActivo(p.plan);
+        setJobs(await listMyJobs(20));
+      } catch (e) {
+        console.error(e);
+      }
+    });
+
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
+      sub.subscription.unsubscribe();
     };
   }, []);
 
@@ -141,18 +185,12 @@ export default function App() {
     request.onsuccess = () => {
       const tx = request.result.transaction("files", "readwrite");
       tx.objectStore("files").put({ id, name: file.name, type: file.type, blob: file });
-      tx.oncomplete = () => setFiles((current) => [{ id, name: file.name, type: file.type, url: URL.createObjectURL(file) }, ...current]);
+      tx.oncomplete = () =>
+        setFiles((current) => [{ id, name: file.name, type: file.type, url: URL.createObjectURL(file) }, ...current]);
     };
   }
 
-  function persistJobs(next: typeof jobs) {
-    setJobs(next);
-    try {
-      localStorage.setItem("somber-jobs", JSON.stringify(next.slice(0, 20)));
-    } catch {}
-  }
-
-  async function pollJob(requestId: string, statusUrl?: string) {
+  async function pollJob(requestId: string, jobDbId?: string, statusUrl?: string) {
     const url = statusUrl || `${API_URL}/generate/${requestId}`;
     try {
       const r = await fetch(url);
@@ -162,9 +200,12 @@ export default function App() {
       const video = data.video_url || data.video || data.output?.video?.url || data.response?.video?.url;
       if (status === "completed" || status === "ok" || video) {
         setApiResult((prev) => ({ ...(prev || {}), estado: "completed", video_url: video, mensaje: "Listo" }));
-        persistJobs(
-          jobs.map((j) => (j.id === requestId ? { ...j, status: "completed", video } : j))
-        );
+        if (jobDbId && supabaseConfigured) {
+          try {
+            await updateJob(jobDbId, { status: "completed", video_url: video || null });
+            setJobs(await listMyJobs(20));
+          } catch {}
+        }
         if (pollRef.current) {
           window.clearInterval(pollRef.current);
           pollRef.current = null;
@@ -173,7 +214,16 @@ export default function App() {
         setNotice(video ? "Video listo." : "Generación completada.");
       } else if (status === "failed" || status === "error") {
         setApiResult((prev) => ({ ...(prev || {}), estado: "error", mensaje: data.detail || data.mensaje || "Falló" }));
-        persistJobs(jobs.map((j) => (j.id === requestId ? { ...j, status: "error" } : j)));
+        if (jobDbId && supabaseConfigured) {
+          try {
+            await updateJob(jobDbId, { status: "error", error_message: String(data.detail || data.mensaje || "error") });
+            if (profile && !profile.is_creator) {
+              const p = await refundCredits(CREDIT_COST, "refund_failed_job");
+              setProfile(p);
+            }
+            setJobs(await listMyJobs(20));
+          } catch {}
+        }
         if (pollRef.current) {
           window.clearInterval(pollRef.current);
           pollRef.current = null;
@@ -189,17 +239,34 @@ export default function App() {
       setNotice("Escribe una descripción un poco más larga.");
       return;
     }
-    if (!canGenerate()) {
-      setNotice(`Límite de ${RATE_MAX} generaciones por hora en este navegador. Espera un poco.`);
+    if (!canGenerateLocal()) {
+      setNotice(`Límite de ${RATE_MAX} generaciones por hora en este navegador.`);
+      return;
+    }
+    if (supabaseConfigured && !sessionEmail) {
+      setNotice("Entra con tu cuenta para generar (así se guardan créditos y proyectos).");
+      setScreen("Entrar");
       return;
     }
     setNotice("");
     setApiResult(null);
     setBusy(true);
-    const text = [prompt.trim(), `Estilo: ${look}.`, `Formato: ${format}.`, `Duración: ${seconds}.`]
-      .filter(Boolean)
-      .join("\n");
+    const text = [prompt.trim(), `Estilo: ${look}.`, `Formato: ${format}.`, `Duración: ${seconds}.`].filter(Boolean).join("\n");
+
+    let jobDbId: string | undefined;
     try {
+      if (supabaseConfigured && sessionEmail) {
+        try {
+          const p = await spendCredits(CREDIT_COST, kind === "anime" ? "generate_anime" : "generate_video");
+          setProfile(p);
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setBusy(false);
+          setNotice(msg.includes("insuficientes") ? "No te quedan créditos. Mejora tu plan." : msg);
+          return;
+        }
+      }
+
       const response = await fetch(`${API_URL}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -213,15 +280,31 @@ export default function App() {
       if (!response.ok) throw new Error(`El servidor respondió ${response.status}.`);
       const data = (await response.json()) as ApiResult;
       setApiResult(data);
-      markGenerate();
+      markGenerateLocal();
+
+      if (supabaseConfigured && sessionEmail) {
+        try {
+          const row = await insertJob({
+            prompt: prompt.trim(),
+            style: look,
+            aspect: format,
+            duration_sec: parseInt(seconds, 10) || 5,
+            provider_request_id: data.request_id,
+            status: data.estado || "queued",
+          });
+          jobDbId = row.id;
+          setJobs(await listMyJobs(20));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
       const rid = data.request_id || String(Date.now());
-      const entry = { id: rid, text: prompt.trim().slice(0, 80), status: data.estado || "queued", at: Date.now() };
-      persistJobs([entry, ...jobs].slice(0, 20));
       if (data.request_id || data.status_url) {
         setNotice("Generando… esto puede tardar 1–2 minutos.");
         if (pollRef.current) window.clearInterval(pollRef.current);
-        pollRef.current = window.setInterval(() => void pollJob(rid, data.status_url), 4000);
-        void pollJob(rid, data.status_url);
+        pollRef.current = window.setInterval(() => void pollJob(rid, jobDbId, data.status_url), 4000);
+        void pollJob(rid, jobDbId, data.status_url);
       } else {
         setBusy(false);
         setNotice(data.estado === "error" ? "No se pudo procesar." : "Instrucción recibida.");
@@ -232,16 +315,66 @@ export default function App() {
     }
   }
 
-  function enter(event: React.FormEvent) {
+  async function handleAuth(event: React.FormEvent) {
     event.preventDefault();
     if (!email.includes("@") || password.length < 8) {
       setNotice("Usa un correo y una contraseña de al menos 8 caracteres.");
       return;
     }
-    setSession(email);
+    if (!supabase) {
+      setSessionEmail(email);
+      setNotice("Supabase aún no está configurado. Sesión solo local.");
+      setScreen("Inicio");
+      return;
+    }
+    setBusy(true);
     setNotice("");
+    try {
+      if (modeAuth === "register") {
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        if (data.user) {
+          setSessionEmail(data.user.email || email);
+          try {
+            const p = await fetchProfile(data.user.id);
+            setProfile(p);
+          } catch {}
+          setNotice("Cuenta creada. Ya puedes generar.");
+          setScreen("Inicio");
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        setSessionEmail(data.user?.email || email);
+        if (data.user) {
+          const p = await fetchProfile(data.user.id);
+          setProfile(p);
+          setJobs(await listMyJobs(20));
+        }
+        setScreen("Inicio");
+      }
+    } catch (e: unknown) {
+      setNotice(e instanceof Error ? e.message : "No se pudo autenticar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleLogout() {
+    if (supabase) await supabase.auth.signOut();
+    setSessionEmail("");
+    setProfile(null);
+    setJobs([]);
     setScreen("Inicio");
   }
+
+  const creditsLabel = profile
+    ? profile.is_creator
+      ? "∞"
+      : String(profile.credits)
+    : sessionEmail
+      ? "…"
+      : "—";
 
   const legal = (
     <div className="legal">
@@ -249,19 +382,20 @@ export default function App() {
       <p className="muted">Beta pública · Actualizado noviembre 2026</p>
       {screen === "Términos" ? (
         <>
-          <p>SOMBER AI STUDIO es un servicio en fase beta. Al usarlo aceptas que la generación de contenido es experimental y puede fallar o producir resultados inesperados.</p>
-          <p>No subas contenido ilegal, que infrinja derechos de terceros o que sea dañino. Tú eres responsable del uso de los resultados.</p>
-          <p>Los planes de pago se activarán cuando conectemos Stripe. Hasta entonces no se realiza ningún cobro real.</p>
-          <p>Podemos modificar o suspender la beta en cualquier momento.</p>
+          <p>SOMBER AI STUDIO es un servicio en fase beta. Al usarlo aceptas que la generación de contenido es experimental.</p>
+          <p>No subas contenido ilegal o que infrinja derechos de terceros. Eres responsable del uso de los resultados.</p>
+          <p>Los planes de pago se activarán con Stripe. Hasta entonces no hay cobro real de tarjeta.</p>
         </>
       ) : (
         <>
-          <p>Guardamos en tu navegador (localStorage / IndexedDB) preferencias, historial local de trabajos y archivos que subas en este dispositivo.</p>
-          <p>Las peticiones de generación se envían a nuestro API (Render). No vendemos tus datos. Los logs de servidor pueden incluir IP y texto de prompt por seguridad y depuración.</p>
-          <p>Cuando activemos cuentas reales y Supabase, se aplicará una política ampliada y podrás solicitar eliminación de datos.</p>
+          <p>Con Supabase guardamos correo, plan, créditos e historial de trabajos asociados a tu cuenta.</p>
+          <p>Archivos locales (IndexedDB) permanecen en tu dispositivo hasta que activemos Storage en la nube.</p>
+          <p>No vendemos tus datos. Puedes solicitar eliminación contactando por Soporte.</p>
         </>
       )}
-      <button className="btn" onClick={() => setScreen("Inicio")}>Volver</button>
+      <button className="btn" onClick={() => setScreen("Inicio")}>
+        Volver
+      </button>
     </div>
   );
 
@@ -282,11 +416,17 @@ export default function App() {
                 {item === "Panel" ? "Panel de control" : item === "Cuenta" ? "Configuración" : item}
               </button>
             ))}
-            <button className={screen === "Soporte" ? "on" : ""} onClick={() => setScreen("Soporte")}>Soporte</button>
+            <button className={screen === "Soporte" ? "on" : ""} onClick={() => setScreen("Soporte")}>
+              Soporte
+            </button>
           </nav>
           <div className="side-foot">
-            <button className="ghost" onClick={() => setScreen("Términos")}>Términos</button>
-            <button className="ghost" onClick={() => setScreen("Privacidad")}>Privacidad</button>
+            <button className="ghost" onClick={() => setScreen("Términos")}>
+              Términos
+            </button>
+            <button className="ghost" onClick={() => setScreen("Privacidad")}>
+              Privacidad
+            </button>
           </div>
         </aside>
       ) : null}
@@ -295,11 +435,14 @@ export default function App() {
           <header className="top">
             <div className="banner">
               <span className="dot" />
-              Beta pública · {apiOk === null ? "comprobando API…" : apiOk ? "API lista" : "API limitada"}
+              Beta · {apiOk === null ? "API…" : apiOk ? "API lista" : "API limitada"}
+              {supabaseConfigured ? " · Supabase" : " · sin Supabase"}
+              {" · "}
+              créditos: {creditsLabel}
             </div>
             <input placeholder="Buscar proyectos…" onKeyDown={(e) => e.key === "Enter" && setScreen("Proyectos")} />
-            <button className="ghost" onClick={() => setScreen(session ? "Cuenta" : "Entrar")}>
-              {session ? session.split("@")[0] : "Entrar"}
+            <button className="ghost" onClick={() => setScreen(sessionEmail ? "Cuenta" : "Entrar")}>
+              {sessionEmail ? sessionEmail.split("@")[0] : "Entrar"}
             </button>
           </header>
         ) : null}
@@ -308,15 +451,17 @@ export default function App() {
             <>
               <p className="muted">Bienvenido a</p>
               <h1>SOMBER AI STUDIO</h1>
-              <p className="muted">Convierte tus ideas en videos increíbles con el poder de la IA. Versión beta pública.</p>
+              <p className="muted">Convierte tus ideas en videos con IA. Beta pública{profile?.is_creator ? " · cuenta creadora" : ""}.</p>
               <div className="row">
                 <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe el video que quieres crear…" />
-                <button className="btn" onClick={() => setScreen("Crear video")}>Generar</button>
+                <button className="btn" onClick={() => setScreen("Crear video")}>
+                  Generar
+                </button>
               </div>
               <div className="chips">
                 <button onClick={() => setScreen("Crear video")}>Videos realistas</button>
                 <button onClick={() => setScreen("Anime")}>Estilo anime</button>
-                <button onClick={() => setScreen("Editor")}>Edición avanzada</button>
+                <button onClick={() => setScreen("Editor")}>Edición</button>
                 <button onClick={() => setScreen("Nube")}>Mis archivos</button>
               </div>
               <h2>Proyectos de ejemplo</h2>
@@ -333,13 +478,16 @@ export default function App() {
               </div>
               {jobs.length > 0 ? (
                 <>
-                  <h2>Últimas generaciones</h2>
+                  <h2>Tus generaciones</h2>
                   <div className="jobs">
-                    {jobs.slice(0, 5).map((j) => (
+                    {jobs.slice(0, 6).map((j) => (
                       <article key={j.id} className="card">
-                        <strong>{j.text}</strong>
-                        <small>{j.status}</small>
-                        {j.video ? <video className="player" controls src={j.video} /> : null}
+                        <strong>{j.prompt.slice(0, 80)}</strong>
+                        <small>
+                          {j.status}
+                          {j.style ? ` · ${j.style}` : ""}
+                        </small>
+                        {j.video_url ? <video className="player" controls src={j.video_url} /> : null}
                       </article>
                     ))}
                   </div>
@@ -358,7 +506,9 @@ export default function App() {
                 }}
               >
                 <h1>{screen === "Anime" ? "Crea videos de anime con IA" : "Crear un nuevo video"}</h1>
-                <p className="muted">Describe tu idea. Formato vertical listo para redes.</p>
+                <p className="muted">
+                  Coste: {CREDIT_COST} crédito{profile?.is_creator ? " (cuenta creadora: sin límite)" : ""}.
+                </p>
                 <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ejemplo: Un dragón volando sobre un castillo medieval al atardecer…" />
                 <p className="muted">Estilo</p>
                 <div className="styles">
@@ -396,23 +546,23 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <button className="btn wide" disabled={busy}>{busy ? "Generando…" : "Generar video"}</button>
+                <button className="btn wide" disabled={busy}>
+                  {busy ? "Generando…" : "Generar video"}
+                </button>
                 {notice ? <p className="notice">{notice}</p> : null}
                 {result ? (
                   <div className="result">
-                    <strong>{result.nombre || "SOMBER AI"}</strong>
+                    <strong>SOMBER AI</strong>
                     <p>{result.mensaje || result.estado || "Procesando"}</p>
                     {result.video_url ? <video className="player" controls src={result.video_url} /> : null}
-                    {result.pasos?.map((step) => <p key={step}>{step}</p>)}
                   </div>
                 ) : null}
               </form>
               <aside className="card tips">
                 <h2>Consejos</h2>
                 <p>Sé específico en la descripción.</p>
-                <p>Indica el estilo y el ambiente.</p>
                 <p>Vertical 9:16 para Reels / TikTok / Shorts.</p>
-                <p>Máximo {RATE_MAX} generaciones por hora en beta.</p>
+                <p>Inicia sesión para guardar proyectos y créditos en la nube.</p>
               </aside>
             </div>
           ) : null}
@@ -423,35 +573,57 @@ export default function App() {
               {files.find((f) => f.type.startsWith("video/")) ? (
                 <video className="player" controls src={files.find((f) => f.type.startsWith("video/"))?.url} />
               ) : (
-                <div className="player">Sube un video en Nube o genera uno para verlo aquí</div>
+                <div className="player">Sube un video en Nube o genera uno</div>
               )}
-              <div className="lane"><span>Video</span><i /></div>
-              <div className="lane"><span>Audio</span><b /></div>
-              <button className="btn" onClick={() => setScreen("Nube")}>Abrir archivos</button>
+              <div className="lane">
+                <span>Video</span>
+                <i />
+              </div>
+              <div className="lane">
+                <span>Audio</span>
+                <b />
+              </div>
+              <button className="btn" onClick={() => setScreen("Nube")}>
+                Abrir archivos
+              </button>
             </>
           ) : null}
 
           {screen === "Proyectos" ? (
             <>
               <h1>Mis proyectos</h1>
-              <div className="grid">
-                {PROJECTS.map(([name, ratio, src]) => (
-                  <article key={name} className="tile">
-                    <img src={src} alt="" />
-                    <div>
-                      <strong>{name}</strong>
-                      <small>{ratio}</small>
-                    </div>
-                  </article>
-                ))}
-              </div>
+              {jobs.length === 0 ? (
+                <div className="grid">
+                  {PROJECTS.map(([name, ratio, src]) => (
+                    <article key={name} className="tile">
+                      <img src={src} alt="" />
+                      <div>
+                        <strong>{name}</strong>
+                        <small>{ratio}</small>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="jobs">
+                  {jobs.map((j) => (
+                    <article key={j.id} className="card">
+                      <strong>{j.prompt}</strong>
+                      <small>
+                        {j.status} · {j.aspect || "9:16"}
+                      </small>
+                      {j.video_url ? <video className="player" controls src={j.video_url} /> : null}
+                    </article>
+                  ))}
+                </div>
+              )}
             </>
           ) : null}
 
           {screen === "Nube" ? (
             <>
               <h1>Mi nube (dispositivo)</h1>
-              <p className="muted">Los archivos se guardan solo en este navegador (IndexedDB).</p>
+              <p className="muted">Archivos locales en este navegador. La nube Supabase Storage llega en el siguiente paso.</p>
               <label className="btn">
                 Subir desde el dispositivo
                 <input
@@ -470,7 +642,9 @@ export default function App() {
                 {files.map((file) => (
                   <article key={file.id} className="tile">
                     {file.type.startsWith("video/") ? <video src={file.url} controls /> : <img src={file.url} alt={file.name} />}
-                    <div><strong>{file.name}</strong></div>
+                    <div>
+                      <strong>{file.name}</strong>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -479,31 +653,44 @@ export default function App() {
 
           {screen === "Planes" ? (
             <>
-              <h1>Elige el plan perfecto para ti</h1>
+              <h1>Elige el plan</h1>
               <div className="plans">
                 {[
-                  ["Básico", "$0", "Plan gratuito", "Comenzar"],
-                  ["Pro", "$12", "Para creadores en crecimiento", "Mejorar plan"],
-                  ["Estudio", "$29", "Para profesionales", "Mejorar plan"],
+                  ["Basico", "$0", "20 créditos de bienvenida", "Comenzar"],
+                  ["Pro", "$12", "Más generaciones / mes", "Mejorar"],
+                  ["Estudio", "$29", "Profesional", "Mejorar"],
                 ].map(([name, price, text, action]) => (
                   <article key={name} className={name === "Pro" ? "card pop" : "card"}>
                     <h2>{name}</h2>
-                    <p className="price">{price}<small>/mes</small></p>
+                    <p className="price">
+                      {price}
+                      <small>/mes</small>
+                    </p>
                     <p className="muted">{text}</p>
-                    <button className="btn wide" onClick={() => { setPlanElegido(name); setScreen("Pago"); }}>{action}</button>
+                    <button
+                      className="btn wide"
+                      onClick={() => {
+                        setPlanElegido(name);
+                        setScreen("Pago");
+                      }}
+                    >
+                      {action}
+                    </button>
                   </article>
                 ))}
               </div>
-              <p className="muted">El cobro real se activará cuando conectemos Stripe. Ahora solo se marca el plan en este navegador.</p>
+              <p className="muted">Cobro real con Stripe: pendiente. Ahora solo se marca preferencia local.</p>
             </>
           ) : null}
 
           {screen === "Pago" ? (
             <>
               <h1>Pago y suscripciones</h1>
-              <p className="muted">Plan activo en este navegador: <strong>{planActivo}</strong>. Confirmar no cobra una tarjeta.</p>
+              <p className="muted">
+                Plan activo: <strong>{profile?.plan || planActivo}</strong>. Confirmar no cobra tarjeta.
+              </p>
               <div className="plans">
-                {["Básico", "Pro", "Estudio"].map((name) => (
+                {["Basico", "Pro", "Estudio"].map((name) => (
                   <button key={name} className={planElegido === name ? "card pop" : "card"} onClick={() => setPlanElegido(name)}>
                     <h2>{name}</h2>
                   </button>
@@ -514,7 +701,7 @@ export default function App() {
                 onClick={() => {
                   localStorage.setItem("somber-plan-activa", planElegido);
                   setPlanActivo(planElegido);
-                  setNotice(`Plan ${planElegido} activo. No se hizo ningún cobro.`);
+                  setNotice(`Plan ${planElegido} marcado. Stripe aún no está conectado.`);
                 }}
               >
                 Activar {planElegido}
@@ -530,62 +717,100 @@ export default function App() {
                 {[
                   ["Videos", String(jobs.filter((j) => j.status === "completed").length)],
                   ["Trabajos", String(jobs.length)],
-                  ["Plan", planActivo],
-                  ["API", apiOk ? "OK" : "—"],
+                  ["Créditos", creditsLabel],
+                  ["Plan", profile?.plan || planActivo],
                 ].map(([label, value]) => (
-                  <article key={label} className="card"><small>{label}</small><strong>{value}</strong></article>
+                  <article key={label} className="card">
+                    <small>{label}</small>
+                    <strong>{value}</strong>
+                  </article>
                 ))}
               </div>
+              {!supabaseConfigured ? <p className="muted">Añade VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY para activar la nube.</p> : null}
             </>
           ) : null}
 
           {screen === "Cuenta" ? (
             <>
               <h1>Mi cuenta</h1>
-              <form className="card narrow" onSubmit={enter}>
-                <label>Correo electrónico<input value={email} onChange={(e) => setEmail(e.target.value)} type="email" /></label>
-                <p className="muted">{session ? `Sesión de esta página: ${session}` : "Entra para guardar el nombre en este navegador."}</p>
-                <button className="btn wide">Guardar cambios</button>
-              </form>
-              <p className="muted">La cuenta real con créditos y sincronización en la nube se activará con Supabase.</p>
+              <div className="card narrow">
+                <p>
+                  <strong>Correo:</strong> {sessionEmail || "Sin sesión"}
+                </p>
+                <p>
+                  <strong>Plan:</strong> {profile?.plan || planActivo}
+                </p>
+                <p>
+                  <strong>Créditos:</strong> {creditsLabel}
+                </p>
+                {profile?.is_creator ? <p className="muted">Cuenta creadora sin límite de créditos.</p> : null}
+                {sessionEmail ? (
+                  <button className="btn wide" onClick={() => void handleLogout()}>
+                    Cerrar sesión
+                  </button>
+                ) : (
+                  <button className="btn wide" onClick={() => setScreen("Entrar")}>
+                    Iniciar sesión
+                  </button>
+                )}
+              </div>
             </>
           ) : null}
 
           {screen === "Soporte" ? (
             <div className="card narrow">
               <h1>Soporte</h1>
-              <p>Beta pública. Si algo no funciona:</p>
-              <ul>
-                <li>Recarga la página y prueba de nuevo.</li>
-                <li>Comprueba que el API está en verde en la barra superior.</li>
-                <li>Respeta el límite de generaciones por hora.</li>
-              </ul>
-              <p className="muted">Contacto: usa el correo de tu cuenta de GitHub o el que configures como soporte oficial.</p>
-              <button className="btn" onClick={() => setScreen("Inicio")}>Volver al inicio</button>
+              <p>Beta pública. Si algo falla, recarga y comprueba el estado del API en la barra superior.</p>
+              <p className="muted">Guía Supabase: archivo SUPABASE.md en el repositorio.</p>
+              <button className="btn" onClick={() => setScreen("Inicio")}>
+                Volver
+              </button>
             </div>
           ) : null}
 
           {screen === "Términos" || screen === "Privacidad" ? legal : null}
 
           {screen === "Entrar" ? (
-            <form className="login" onSubmit={enter}>
+            <form className="login" onSubmit={(e) => void handleAuth(e)}>
               <button type="button" className="brand center" onClick={() => setScreen("Inicio")}>
                 <span>S</span>
-                <strong>SOMBER AI STUDIO<small>Tu imaginación, nuestro poder.</small></strong>
+                <strong>
+                  SOMBER AI STUDIO
+                  <small>Tu imaginación, nuestro poder.</small>
+                </strong>
               </button>
-              <h1>Iniciar sesión</h1>
-              <label>Correo electrónico<input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required /></label>
-              <label>Contraseña<input value={password} onChange={(e) => setPassword(e.target.value)} type="password" minLength={8} required /></label>
+              <h1>{modeAuth === "login" ? "Iniciar sesión" : "Crear cuenta"}</h1>
+              <label>
+                Correo electrónico
+                <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required />
+              </label>
+              <label>
+                Contraseña
+                <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" minLength={8} required />
+              </label>
               {notice ? <p className="notice">{notice}</p> : null}
-              <button className="btn wide">Iniciar sesión</button>
-              <p className="muted">La sesión real con créditos llegará con Supabase. Aquí solo se guarda el nombre en este navegador.</p>
+              <button className="btn wide" disabled={busy}>
+                {busy ? "Espera…" : modeAuth === "login" ? "Entrar" : "Registrarme"}
+              </button>
+              <button type="button" className="ghost" onClick={() => setModeAuth((m) => (m === "login" ? "register" : "login")).toString() as any}>
+                {modeAuth === "login" ? "¿No tienes cuenta? Regístrate" : "Ya tengo cuenta"}
+              </button>
+              {!supabaseConfigured ? (
+                <p className="muted">Supabase no configurado: la sesión será solo local hasta que añadas las claves.</p>
+              ) : null}
             </form>
           ) : null}
         </section>
         <footer className="site-footer">
-          <button className="ghost" onClick={() => setScreen("Términos")}>Términos</button>
-          <button className="ghost" onClick={() => setScreen("Privacidad")}>Privacidad</button>
-          <button className="ghost" onClick={() => setScreen("Soporte")}>Soporte</button>
+          <button className="ghost" onClick={() => setScreen("Términos")}>
+            Términos
+          </button>
+          <button className="ghost" onClick={() => setScreen("Privacidad")}>
+            Privacidad
+          </button>
+          <button className="ghost" onClick={() => setScreen("Soporte")}>
+            Soporte
+          </button>
           <span className="muted">SOMBER AI STUDIO · beta</span>
         </footer>
       </div>
