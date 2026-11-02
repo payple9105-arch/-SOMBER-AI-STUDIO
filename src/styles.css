@@ -86,10 +86,30 @@ h2 { margin: 28px 0 12px; font-size: 18px; }
   overflow: hidden;
 }
 .styles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.style-card { position: relative; min-height: 76px; overflow: hidden; border-radius: 12px; border: 2px solid #243049; padding: 0; background: #10182b; }
-.style-card img { width: 100%; height: 76px; object-fit: cover; display: block; }
-.style-card span { position: absolute; left: 8px; right: 8px; bottom: 6px; font-size: 12px; color: white; text-align: left; text-shadow: 0 1px 4px #000; }
-.style-card.on { border-color: #7b61ff; }
+.style-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 2px solid #243049;
+  padding: 0;
+  background: #10182b;
+  text-align: left;
+}
+.style-card img { width: 100%; height: 80px; object-fit: cover; display: block; }
+.style-card .style-label {
+  display: block;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #eef2fb;
+  background: #0c1222;
+}
+.style-card.on { border-color: #7b61ff; box-shadow: 0 0 0 1px rgba(123, 97, 255, 0.45); }
+.style-card.on .style-label { background: #7b61ff; color: white; }
+@media (max-width: 900px) {
+  .styles { grid-template-columns: 1fr 1fr; }
+}
 .tile img { width: 100%; height: 120px; object-fit: cover; display: block; }
 .tile video, .player video { width: 100%; max-height: 240px; background: #10182b; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
