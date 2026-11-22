@@ -2,7 +2,8 @@
 
 ## 1. Proyecto
 
-1. Entra en [supabase.com](https://supabase.com) y abre tu proyecto **sombra IA estudio** (o crea uno nuevo).
+1. Proyecto: **somber-ai-studio** (`gdamdrgrtcncuwzmqiub`, región París). Ya tiene el esquema aplicado y
+   la web ya apunta a él (`src/lib/supabase.ts`). Los pasos 2 y 4 solo hacen falta para otro proyecto.
 2. Ve a **Project Settings → API**.
 3. Copia:
    - **Project URL** → `VITE_SUPABASE_URL`

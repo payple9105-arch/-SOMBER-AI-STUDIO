@@ -1,7 +1,13 @@
 import { createClient, type Session, type User } from "@supabase/supabase-js";
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+// Proyecto Supabase "somber-ai-studio". Ambos valores son públicos por diseño
+// (van en el JS de la web); la seguridad está en RLS (supabase/001_schema.sql).
+// Se pueden sobrescribir con VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY.
+const DEFAULT_URL = "https://gdamdrgrtcncuwzmqiub.supabase.co";
+const DEFAULT_KEY = "sb_publishable_NbS7gpKngLZ2JsHWUIHZQw_PXoeV1zA";
+
+const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || DEFAULT_URL;
+const anon = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || DEFAULT_KEY;
 
 export const supabaseConfigured = Boolean(url && anon && !url.includes("TU_PROYECTO"));
 

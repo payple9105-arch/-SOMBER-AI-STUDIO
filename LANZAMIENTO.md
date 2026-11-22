@@ -23,8 +23,8 @@ Actualizado: 2026-11-01
 
 ### 2. Auth y datos (Supabase)
 - [x] Esquema endurecido: créditos solo vía `charge_job` / `refund_job`
-- [ ] Ejecutar `supabase/001_schema.sql`
-- [ ] Secretos GitHub: `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`
+- [x] Proyecto `somber-ai-studio` (París) creado y `supabase/001_schema.sql` aplicado
+- [x] URL y clave publicable integradas en `src/lib/supabase.ts` (no hacen falta secretos)
 - [ ] Site URL / Redirect en Auth
 - [ ] Probar registro + créditos
 - [ ] Marcar cuenta creadora a mano (SQL en `SUPABASE.md`)
