@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  supabase, supabaseConfigured, fetchProfile, spendCredits, refundCredits,
+  supabase, supabaseConfigured, fetchProfile, chargeJob, refundJob,
   insertJob, updateJob, listMyJobs, type Profile, type JobRow,
 } from "./lib/supabase";
 
@@ -151,8 +151,7 @@ export default function App() {
         setApiResult((prev) => ({ ...(prev || {}), estado: "error", mensaje: data.detail || data.mensaje || "Falló" }));
         if (jobDbId && supabaseConfigured) {
           try {
-            await updateJob(jobDbId, { status: "error", error_message: String(data.detail || data.mensaje || "error") });
-            if (profile && !profile.is_creator) { const p = await refundCredits(CREDIT_COST, "refund_failed_job"); setProfile(p); }
+            setProfile(await refundJob(jobDbId, String(data.detail || data.mensaje || "error")));
             setJobs(await listMyJobs(20));
           } catch {}
         }
@@ -171,35 +170,37 @@ export default function App() {
     const text = [prompt.trim(), `Estilo: ${look}.`, `Formato: ${format}.`, `Duración: ${seconds}.`].join("\n");
     let jobDbId: string | undefined;
     try {
+      // 1) Crear el trabajo y cobrarlo en Supabase antes de llamar a la API.
       if (supabaseConfigured && sessionEmail) {
         try {
-          const p = await spendCredits(CREDIT_COST, kind === "anime" ? "generate_anime" : "generate_video");
-          setProfile(p);
+          const row = await insertJob({
+            prompt: prompt.trim(), style: look, aspect: format,
+            duration_sec: parseInt(seconds, 10) || 5, status: "queued",
+          });
+          jobDbId = row.id;
+          setProfile(await chargeJob(row.id, CREDIT_COST, kind === "anime" ? "generate_anime" : "generate_video"));
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
+          if (jobDbId) { try { await refundJob(jobDbId, msg); } catch {} }
           setBusy(false);
           setNotice(msg.includes("insuficientes") ? "No te quedan créditos." : msg);
           return;
         }
       }
+      // 2) Llamar a la API. Si falla, se devuelve el crédito (bloque catch).
       const response = await fetch(`${API_URL}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, aspect: format, duration_sec: parseInt(seconds, 10) || 5 }),
       });
-      if (response.status === 429) { setNotice("Límite del servidor."); setBusy(false); return; }
+      if (response.status === 429) throw new Error("Límite del servidor.");
       if (!response.ok) throw new Error(`El servidor respondió ${response.status}.`);
       const data = (await response.json()) as ApiResult;
       setApiResult(data);
       markGenerateLocal();
-      if (supabaseConfigured && sessionEmail) {
+      if (jobDbId) {
         try {
-          const row = await insertJob({
-            prompt: prompt.trim(), style: look, aspect: format,
-            duration_sec: parseInt(seconds, 10) || 5,
-            provider_request_id: data.request_id, status: data.estado || "queued",
-          });
-          jobDbId = row.id;
+          await updateJob(jobDbId, { provider_request_id: data.request_id, status: data.estado || "queued" });
           setJobs(await listMyJobs(20));
         } catch (e) { console.error(e); }
       }
@@ -210,11 +211,18 @@ export default function App() {
         pollRef.current = window.setInterval(() => void pollJob(rid, jobDbId, data.status_url), 4000);
         void pollJob(rid, jobDbId, data.status_url);
       } else {
+        if (data.estado === "error" && jobDbId) {
+          try { setProfile(await refundJob(jobDbId, data.mensaje || "error")); setJobs(await listMyJobs(20)); } catch {}
+        }
         setBusy(false);
         setNotice(data.estado === "error" ? "No se pudo procesar." : "Instrucción recibida.");
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "No pudimos conectar.");
+      const msg = error instanceof Error ? error.message : "No pudimos conectar.";
+      if (jobDbId) {
+        try { setProfile(await refundJob(jobDbId, msg)); setJobs(await listMyJobs(20)); } catch {}
+      }
+      setNotice(msg);
       setBusy(false);
     }
   }

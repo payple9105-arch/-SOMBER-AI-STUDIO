@@ -42,23 +42,24 @@ export async function fetchProfile(userId: string): Promise<Profile | null> {
   return data as Profile | null;
 }
 
-export async function spendCredits(amount: number, reason = "generate") {
+/** Cobra un trabajo propio (una sola vez). Los creadores no pagan. */
+export async function chargeJob(jobId: string, amount: number, reason = "generate") {
   if (!supabase) throw new Error("Supabase no configurado");
-  const { data, error } = await supabase.rpc("spend_credits", {
+  const { data, error } = await supabase.rpc("charge_job", {
+    p_job_id: jobId,
     p_amount: amount,
     p_reason: reason,
-    p_meta: {},
   });
   if (error) throw error;
   return data as Profile;
 }
 
-export async function refundCredits(amount: number, reason = "refund") {
+/** Marca el trabajo como fallido y devuelve lo cobrado (una sola vez). */
+export async function refundJob(jobId: string, errorMessage?: string) {
   if (!supabase) throw new Error("Supabase no configurado");
-  const { data, error } = await supabase.rpc("refund_credits", {
-    p_amount: amount,
-    p_reason: reason,
-    p_meta: {},
+  const { data, error } = await supabase.rpc("refund_job", {
+    p_job_id: jobId,
+    p_error: errorMessage ?? null,
   });
   if (error) throw error;
   return data as Profile;
