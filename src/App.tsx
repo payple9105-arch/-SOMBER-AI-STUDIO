@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  supabase, supabaseConfigured, fetchProfile, chargeJob, refundJob,
+  supabase, supabaseConfigured, fetchProfile, chargeJob, refundJob, getAccessToken,
   insertJob, updateJob, listMyJobs, type Profile, type JobRow,
 } from "./lib/supabase";
 
@@ -61,6 +61,8 @@ export default function App() {
   const [look, setLook] = useState("Cinemático");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
+  const [promptBeforeAI, setPromptBeforeAI] = useState<string | null>(null);
   const [result, setApiResult] = useState<ApiResult | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -132,9 +134,15 @@ export default function App() {
     };
   }
 
-  async function pollJob(requestId: string, jobDbId?: string, statusUrl?: string) {
+  async function authHeaders(): Promise<Record<string, string>> {
+    const token = await getAccessToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  async function pollJob(requestId: string, jobDbId?: string) {
     try {
-      const r = await fetch(statusUrl || `${API_URL}/generate/${requestId}`);
+      const qs = jobDbId ? `?job_id=${encodeURIComponent(jobDbId)}` : "";
+      const r = await fetch(`${API_URL}/generate/${encodeURIComponent(requestId)}${qs}`, { headers: await authHeaders() });
       if (!r.ok) return;
       const data = await r.json();
       const status = (data.status || data.estado || "").toLowerCase();
@@ -187,29 +195,29 @@ export default function App() {
           return;
         }
       }
-      // 2) Llamar a la API. Si falla, se devuelve el crédito (bloque catch).
+      // 2) Llamar a la API. El servidor comprueba en Supabase que el trabajo está pagado.
       const response = await fetch(`${API_URL}/generate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, aspect: format, duration_sec: parseInt(seconds, 10) || 5 }),
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+        body: JSON.stringify({ text, aspect: format, duration_sec: parseInt(seconds, 10) || 5, job_id: jobDbId }),
       });
-      if (response.status === 429) throw new Error("Límite del servidor.");
-      if (!response.ok) throw new Error(`El servidor respondió ${response.status}.`);
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        const detail = typeof err?.detail === "string" ? err.detail : `El servidor respondió ${response.status}.`;
+        throw new Error(detail);
+      }
       const data = (await response.json()) as ApiResult;
       setApiResult(data);
       markGenerateLocal();
       if (jobDbId) {
-        try {
-          await updateJob(jobDbId, { provider_request_id: data.request_id, status: data.estado || "queued" });
-          setJobs(await listMyJobs(20));
-        } catch (e) { console.error(e); }
+        try { setJobs(await listMyJobs(20)); } catch (e) { console.error(e); }
       }
       const rid = data.request_id || String(Date.now());
-      if (data.request_id || data.status_url) {
+      if (data.request_id) {
         setNotice("Generando… 1–2 minutos.");
         if (pollRef.current) window.clearInterval(pollRef.current);
-        pollRef.current = window.setInterval(() => void pollJob(rid, jobDbId, data.status_url), 4000);
-        void pollJob(rid, jobDbId, data.status_url);
+        pollRef.current = window.setInterval(() => void pollJob(rid, jobDbId), 4000);
+        void pollJob(rid, jobDbId);
       } else {
         if (data.estado === "error" && jobDbId) {
           try { setProfile(await refundJob(jobDbId, data.mensaje || "error")); setJobs(await listMyJobs(20)); } catch {}
@@ -224,6 +232,34 @@ export default function App() {
       }
       setNotice(msg);
       setBusy(false);
+    }
+  }
+
+  async function handleEnhance(kind: "video" | "anime") {
+    if (prompt.trim().length < 3) { setNotice("Escribe primero tu idea, aunque sea corta."); return; }
+    if (supabaseConfigured && !sessionEmail) { setNotice("Entra con tu cuenta para usar el Director IA."); setScreen("Entrar"); return; }
+    setEnhancing(true); setNotice("");
+    try {
+      const response = await fetch(`${API_URL}/enhance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+        body: JSON.stringify({
+          idea: prompt.trim().slice(0, 1000), style: look, aspect: format,
+          duration_sec: parseInt(seconds, 10) || 5, mode: kind,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        setNotice(typeof data?.detail === "string" ? data.detail : "El Director IA no está disponible ahora.");
+        return;
+      }
+      setPromptBeforeAI(prompt);
+      setPrompt(String(data.prompt));
+      setNotice(`✨ ${data.titulo}: ${data.explicacion}`);
+    } catch {
+      setNotice("No pudimos conectar con el Director IA.");
+    } finally {
+      setEnhancing(false);
     }
   }
 
@@ -363,8 +399,16 @@ export default function App() {
               <div className="create-form card">
                 <h1>{screen === "Anime" ? "Anime Studio" : "Crear Video con IA"}</h1>
                 <p className="muted">{screen === "Anime" ? "Crea personajes, escenas y animaciones" : "Describe tu idea y deja que la IA la haga realidad"}</p>
-                <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ejemplo: Un astronauta en la luna, estilo cinematográfico…" maxLength={2000} />
-                <div className="char-count">{prompt.length}/2000</div>
+                <textarea value={prompt} onChange={(e) => { setPrompt(e.target.value); setPromptBeforeAI(null); }} placeholder="Ejemplo: Un astronauta en la luna, estilo cinematográfico…" maxLength={2000} />
+                <div className="ai-row">
+                  <button type="button" className="btn tiny ai-btn" disabled={enhancing || busy} onClick={() => void handleEnhance(screen === "Anime" ? "anime" : "video")}>
+                    {enhancing ? "Mejorando…" : "✨ Mejorar con IA"}
+                  </button>
+                  {promptBeforeAI !== null ? (
+                    <button type="button" className="link" onClick={() => { setPrompt(promptBeforeAI); setPromptBeforeAI(null); setNotice(""); }}>Deshacer</button>
+                  ) : null}
+                  <span className="char-count">{prompt.length}/2000</span>
+                </div>
                 <p className="label">Estilo</p>
                 <div className="styles">
                   {(screen === "Anime" ? ANIME_STYLES : STYLES).map(([name, file]) => (

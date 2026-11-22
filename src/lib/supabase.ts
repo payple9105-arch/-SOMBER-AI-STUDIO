@@ -41,6 +41,13 @@ export type JobRow = {
   created_at: string;
 };
 
+/** Token de sesión para llamar a la API de SOMBER (que lo valida en Supabase). */
+export async function getAccessToken(): Promise<string | null> {
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}
+
 export async function fetchProfile(userId: string): Promise<Profile | null> {
   if (!supabase) return null;
   const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
@@ -76,7 +83,6 @@ export async function insertJob(input: {
   style?: string;
   aspect?: string;
   duration_sec?: number;
-  provider_request_id?: string;
   status?: string;
 }) {
   if (!supabase) throw new Error("Supabase no configurado");
@@ -90,7 +96,6 @@ export async function insertJob(input: {
       style: input.style ?? null,
       aspect: input.aspect ?? "9:16",
       duration_sec: input.duration_sec ?? 5,
-      provider_request_id: input.provider_request_id ?? null,
       status: input.status ?? "queued",
     })
     .select("*")
@@ -101,7 +106,7 @@ export async function insertJob(input: {
 
 export async function updateJob(
   id: string,
-  patch: Partial<{ status: string; video_url: string | null; error_message: string | null; provider_request_id: string }>
+  patch: Partial<{ status: string; video_url: string | null; error_message: string | null }>
 ) {
   if (!supabase) throw new Error("Supabase no configurado");
   const { data, error } = await supabase

@@ -115,6 +115,9 @@ textarea, label input, .create-form input {
 }
 textarea:focus, label input:focus { border-color: rgba(139,92,246,.55); }
 .char-count { text-align: right; color: #6b658a; font-size: 11px; margin-top: 4px; }
+.ai-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.ai-row .char-count { margin: 0 0 0 auto; }
+.ai-btn { background: linear-gradient(135deg, #7c3aed, #c026d3); }
 .styles { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 8px; }
 .style-card {
   border: 1.5px solid rgba(255,255,255,.08); background: #12121f; border-radius: 12px;

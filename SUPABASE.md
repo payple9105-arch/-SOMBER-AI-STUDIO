@@ -84,6 +84,19 @@ VITE_SUPABASE_ANON_KEY=eyJ...
 5. Generar un vídeo (gasta 1 crédito si no eres creador)
 6. Si la generación falla, el crédito se devuelve solo (una vez por trabajo)
 
+## 6. Servidor (Render)
+
+La API comprueba los créditos en Supabase antes de generar. En Render →
+servicio de la API → **Environment**, añade:
+
+| Variable | Valor |
+|----------|-------|
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API Keys → clave **secret** (o `service_role`). Solo en Render, nunca en GitHub ni en la web. |
+| `ANTHROPIC_API_KEY` | Clave de console.anthropic.com para el Director IA. |
+
+Sin `SUPABASE_SERVICE_ROLE_KEY`, `/generate` responde 503. Sin `ANTHROPIC_API_KEY`,
+`/enhance` responde 503. `GET /health` indica qué está configurado.
+
 ## Coste de generación
 
 Por defecto la app gasta **1 crédito** por vídeo. Ajusta en `src/App.tsx` (`CREDIT_COST`).

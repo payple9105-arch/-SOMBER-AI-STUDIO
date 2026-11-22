@@ -5,6 +5,9 @@
 --   * El navegador NO puede cambiar credits, plan ni is_creator.
 --   * Los créditos solo se gastan/devuelven por trabajo (charge_job / refund_job):
 --     una devolución solo es posible una vez y solo si ese trabajo se cobró.
+--   * La API (servidor, con la clave service_role) "reclama" el trabajo antes de
+--     generar. Un trabajo reclamado solo lo puede devolver el servidor, cuando el
+--     proveedor de vídeo confirma que falló.
 
 -- ── Tablas ──────────────────────────────────────────────────────────────
 
@@ -49,6 +52,7 @@ create table if not exists public.jobs (
 alter table public.jobs add column if not exists credits_charged integer not null default 0;
 alter table public.jobs add column if not exists charged_at timestamptz;
 alter table public.jobs add column if not exists refunded_at timestamptz;
+alter table public.jobs add column if not exists api_claimed_at timestamptz;
 
 create index if not exists jobs_user_id_idx on public.jobs (user_id);
 create index if not exists jobs_created_at_idx on public.jobs (created_at desc);
@@ -159,6 +163,11 @@ begin
   select * into job from public.jobs where id = p_job_id and user_id = uid for update;
   if not found then raise exception 'Trabajo no encontrado'; end if;
 
+  -- Reclamado por la API: solo el servidor puede devolverlo (server_refund_job).
+  if job.api_claimed_at is not null then
+    return prof;
+  end if;
+
   update public.jobs
   set status = 'error',
       error_message = coalesce(left(p_error, 500), error_message),
@@ -179,6 +188,87 @@ begin
   values (uid, job.credits_charged, 'refund_failed_job', jsonb_build_object('job_id', p_job_id));
 
   return prof;
+end;
+$$;
+
+-- ── Funciones del servidor (solo service_role) ──────────────────────────
+
+-- La API reclama un trabajo cobrado antes de generar. Cada trabajo, una vez.
+create or replace function public.server_claim_job(p_user_id uuid, p_job_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.jobs
+  set api_claimed_at = now(), status = 'processing', updated_at = now()
+  where id = p_job_id
+    and user_id = p_user_id
+    and charged_at is not null
+    and refunded_at is null
+    and api_claimed_at is null;
+  return found;
+end;
+$$;
+
+-- Guarda el id de la petición al proveedor (fal.ai).
+create or replace function public.server_set_request(p_user_id uuid, p_job_id uuid, p_request_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.jobs
+  set provider_request_id = left(p_request_id, 200), updated_at = now()
+  where id = p_job_id and user_id = p_user_id and api_claimed_at is not null;
+end;
+$$;
+
+-- Devuelve un trabajo reclamado cuando el proveedor ha fallado. Si el trabajo ya
+-- tiene request_id, debe coincidir con el que el servidor comprobó en fal.ai.
+create or replace function public.server_refund_job(
+  p_user_id uuid,
+  p_job_id uuid,
+  p_request_id text default null,
+  p_error text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  job public.jobs;
+begin
+  select * into job from public.jobs
+  where id = p_job_id and user_id = p_user_id
+  for update;
+  if not found then return false; end if;
+  if job.provider_request_id is not null and job.provider_request_id is distinct from p_request_id then
+    return false;
+  end if;
+
+  update public.jobs
+  set status = 'error',
+      error_message = coalesce(left(p_error, 500), error_message),
+      refunded_at = coalesce(refunded_at, case when charged_at is not null then now() end),
+      updated_at = now()
+  where id = p_job_id;
+
+  if job.charged_at is null or job.refunded_at is not null or job.credits_charged <= 0 then
+    return false;
+  end if;
+
+  update public.profiles
+  set credits = credits + job.credits_charged, updated_at = now()
+  where id = p_user_id;
+
+  insert into public.credit_ledger (user_id, delta, reason, meta)
+  values (p_user_id, job.credits_charged, 'refund_failed_job', jsonb_build_object('job_id', p_job_id));
+
+  return true;
 end;
 $$;
 
@@ -228,9 +318,9 @@ grant select on public.credit_ledger to authenticated;
 
 -- jobs: no se pueden tocar las columnas de cobro
 grant select on public.jobs to authenticated;
-grant insert (user_id, prompt, style, aspect, duration_sec, provider_request_id, status)
+grant insert (user_id, prompt, style, aspect, duration_sec, status)
   on public.jobs to authenticated;
-grant update (provider_request_id, status, video_url, error_message, updated_at)
+grant update (status, video_url, error_message, updated_at)
   on public.jobs to authenticated;
 
 revoke all on function public.handle_new_user() from public, anon, authenticated;
@@ -238,3 +328,10 @@ revoke all on function public.charge_job(uuid, integer, text) from public, anon;
 revoke all on function public.refund_job(uuid, text) from public, anon;
 grant execute on function public.charge_job(uuid, integer, text) to authenticated;
 grant execute on function public.refund_job(uuid, text) to authenticated;
+
+revoke all on function public.server_claim_job(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.server_set_request(uuid, uuid, text) from public, anon, authenticated;
+revoke all on function public.server_refund_job(uuid, uuid, text, text) from public, anon, authenticated;
+grant execute on function public.server_claim_job(uuid, uuid) to service_role;
+grant execute on function public.server_set_request(uuid, uuid, text) to service_role;
+grant execute on function public.server_refund_job(uuid, uuid, text, text) to service_role;

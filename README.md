@@ -11,7 +11,8 @@ Plataforma en **beta pública** para generar y editar ideas de vídeo con IA.
 ## Qué incluye hoy
 
 - Interfaz web (Inicio, Crear video, Anime, Editor, Proyectos, Nube, Planes, Pago, Panel, Cuenta, Soporte, Términos, Privacidad)
-- Generación de vídeo vía API (`/generate`) cuando el servidor tiene `FAL_KEY`
+- Generación de vídeo vía API (`/generate`) cuando el servidor tiene `FAL_KEY`; los créditos se comprueban en el servidor
+- Director IA (`/enhance`): Claude convierte una idea corta en un prompt de vídeo optimizado
 - Seguimiento de trabajos y reproducción del resultado
 - Subida local de archivos (IndexedDB en el navegador)
 - Límite client-side de generaciones por hora (antiabuso básico)
@@ -43,6 +44,8 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 export FAL_KEY=tu_clave
+export SUPABASE_SERVICE_ROLE_KEY=tu_clave_secreta   # créditos en servidor
+export ANTHROPIC_API_KEY=tu_clave                    # Director IA
 uvicorn server:app --reload --port 8000
 ```
 

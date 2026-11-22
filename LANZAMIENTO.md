@@ -18,6 +18,9 @@ Actualizado: 2026-11-01
 
 ### 1. API
 - [x] FAL_KEY configurada (health OK)
+- [x] Créditos comprobados en el servidor (`server_claim_job` en Supabase)
+- [x] Director IA (`POST /enhance`, Claude) + botón «✨ Mejorar con IA»
+- [ ] Render: añadir `SUPABASE_SERVICE_ROLE_KEY` y `ANTHROPIC_API_KEY`
 - [ ] Plan Render sin sleep / keep-alive
 - [ ] Generación extremo a extremo verificada
 
