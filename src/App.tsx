@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  LayoutGrid, MessageSquare, Clapperboard, Image as ImageIcon, Sparkles, Scissors, Music, Brush,
+  FolderOpen, Cloud, CreditCard, User, Send, Upload, Download, Search, RotateCcw,
+  type LucideIcon,
+} from "lucide-react";
+import {
   supabase, supabaseConfigured, fetchProfile, spendCredits, refundCredits,
   insertJob, updateJob, listMyJobs, type Profile, type JobRow,
 } from "./lib/supabase";
@@ -18,16 +23,22 @@ const RATE_WINDOW = 60 * 60 * 1000;
 const NAV = [
   ["Inicio", "Inicio"],
   ["Asistente", "Asistente IA"],
-  ["Crear video", "Crear Video con IA"],
-  ["Imagen a Video", "Imagen a Video"],
+  ["Crear video", "Crear video"],
+  ["Imagen a Video", "Imagen a video"],
   ["Anime", "Anime Studio"],
-  ["Editor", "Editor Profesional"],
-  ["Voces", "Voces y Música"],
-  ["Proyectos", "Mis Proyectos"],
+  ["Editor", "Editor"],
+  ["Voces", "Voces y música"],
+  ["Proyectos", "Mis proyectos"],
   ["Nube", "Nube"],
-  ["Planes", "Planes y Créditos"],
+  ["Planes", "Planes y créditos"],
   ["Cuenta", "Cuenta"],
 ] as const;
+
+const ICONS: Record<string, LucideIcon> = {
+  Inicio: LayoutGrid, Asistente: MessageSquare, "Crear video": Clapperboard, "Imagen a Video": ImageIcon,
+  Anime: Brush, Editor: Scissors, Voces: Music, Proyectos: FolderOpen, Nube: Cloud,
+  Planes: CreditCard, Cuenta: User,
+};
 
 type Screen = (typeof NAV)[number][0] | "Entrar" | "Soporte" | "Términos" | "Privacidad" | "Pago";
 
@@ -36,13 +47,17 @@ const COVERS = [`${base}gallery/hero.jpg`, `${base}gallery/neon.jpg`, `${base}ga
 const STYLES = [["Cinemático","cinematico"],["Anime","anime"],["Cyberpunk","cyberpunk"],["Documental","documental"],["Noir","noir"]] as const;
 const ANIME_STYLES = [["Shonen épico","shonen"],["Ghibli suave","ghibli"],["Noir urbano","noir"],["Mecha nocturno","mecha"],["Romance pastel","romance"]] as const;
 const TOOLS = [
-  ["Asistente IA", "Asistente", "🤖"],
-  ["Crear Video con IA", "Crear video", "🎬"],
-  ["Imagen a Video", "Imagen a Video", "🖼️"],
-  ["Anime Studio", "Anime", "🎌"],
-  ["Editor Profesional", "Editor", "🎞️"],
-  ["Voces y Música", "Voces", "🎵"],
+  ["Asistente IA", "Asistente", "Ideas, guiones y prompts"],
+  ["Crear video", "Crear video", "De texto a video"],
+  ["Imagen a video", "Imagen a Video", "Da movimiento a una foto"],
+  ["Anime Studio", "Anime", "Personajes y escenas"],
+  ["Editor", "Editor", "Ajusta color y exporta"],
 ] as const;
+
+const FILTERS: Record<string, string> = {
+  Glow: "drop-shadow(0 0 12px rgba(139,124,255,.6))", Blur: "blur(2px)",
+  Neon: "hue-rotate(40deg) saturate(1.6)", "B/N": "grayscale(1)",
+};
 
 const isImageUrl = (u?: string | null) => !!u && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(u);
 
@@ -115,6 +130,11 @@ export default function App() {
   const [animeOut, setAnimeOut] = useState<"Video" | "Imagen">("Video");
   const [i2vImage, setI2vImage] = useState("");
   const [enhancing, setEnhancing] = useState(false);
+  const [adjust, setAdjust] = useState({ brillo: 100, contraste: 100, saturacion: 100 });
+  const [effect, setEffect] = useState("");
+  const [query, setQuery] = useState("");
+
+  const go = (target: Screen) => { setNotice(""); setScreen(target); };
   const [chat, setChat] = useState<ChatMsg[]>([
     { role: "assistant", content: "¡Hola! Soy SOMBER, tu asistente creativo. Puedo ayudarte con guiones, personajes de anime, estilos y prompts listos para generar. ¿Qué quieres crear?" },
   ]);
@@ -224,7 +244,7 @@ export default function App() {
       if (!r.ok) throw new Error(await apiError(r));
       const d = await r.json();
       if (d.prompt) setPrompt(String(d.prompt).slice(0, 2000));
-      setNotice(d.fuente === "ia" ? "✨ Prompt mejorado con IA." : "✨ Prompt mejorado.");
+      setNotice(d.fuente === "ia" ? "Prompt mejorado con IA. Revísalo y genera." : "Prompt mejorado. Revísalo y genera.");
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "No se pudo mejorar el prompt.");
     } finally { setEnhancing(false); }
@@ -364,6 +384,18 @@ export default function App() {
     setSessionEmail(""); setProfile(null); setJobs([]); setScreen("Inicio");
   }
 
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const q = query.trim().toLowerCase();
+    if (!q) return;
+    const hit = NAV.find(([id, label]) => id.toLowerCase().includes(q) || label.toLowerCase().includes(q));
+    if (hit) { go(hit[0]); setQuery(""); }
+    else setNotice(`No hay ninguna sección que coincida con "${query.trim()}".`);
+  }
+
+  const editorFilter = `brightness(${adjust.brillo}%) contrast(${adjust.contraste}%) saturate(${adjust.saturacion}%) ${FILTERS[effect] || ""}`.trim();
+  const editorVideo = result?.video_url || files.find((f) => f.type.startsWith("video/"))?.url || "";
+
   const creditsLabel = profile ? (profile.is_creator ? "∞" : String(profile.credits)) : sessionEmail ? "…" : "—";
   const displayName = sessionEmail ? sessionEmail.split("@")[0] : "Invitado";
 
@@ -371,7 +403,7 @@ export default function App() {
     return (
       <div className="app center-screen">
         <form className="login" onSubmit={(e) => void handleAuth(e)}>
-          <div className="brand-row"><span className="logo-mark">S</span><strong>SOMBER AI STUDIO</strong></div>
+          <div className="brand-row"><span className="logo-mark">S</span><strong>Somber AI Studio</strong></div>
           <h1>{modeAuth === "login" ? "Iniciar sesión" : "Crear cuenta"}</h1>
           <label>Correo<input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required /></label>
           <label>Contraseña<input value={password} onChange={(e) => setPassword(e.target.value)} type="password" minLength={8} required /></label>
@@ -390,12 +422,13 @@ export default function App() {
       <aside className="side">
         <button className="brand" onClick={() => setScreen("Inicio")}>
           <span className="logo-mark">S</span>
-          <strong>SOMBER AI<small>STUDIO</small></strong>
+          <strong>Somber<small>AI Studio</small></strong>
         </button>
         <nav>
           {NAV.map(([id, label]) => (
-            <button key={id} className={screen === id || (id === "Planes" && screen === "Pago") ? "on" : ""} onClick={() => setScreen(id)}>
-              {label}
+            <button key={id} className={screen === id || (id === "Planes" && screen === "Pago") ? "on" : ""} onClick={() => go(id)}>
+              {(() => { const I = ICONS[id]; return I ? <I size={17} strokeWidth={1.8} aria-hidden /> : null; })()}
+              <span>{label}</span>
             </button>
           ))}
         </nav>
@@ -403,19 +436,23 @@ export default function App() {
           <div className="avatar">{displayName.slice(0, 1).toUpperCase()}</div>
           <div>
             <strong>{displayName}</strong>
-            <small>{profile?.plan || planActivo} · {creditsLabel} créd.</small>
+            <small>Plan {profile?.plan || planActivo}, {creditsLabel} créditos</small>
           </div>
         </div>
         <button className="btn side-cta" onClick={() => setScreen(sessionEmail ? "Planes" : "Entrar")}>
-          {sessionEmail ? "Actualizar Plan" : "Entrar"}
+          {sessionEmail ? "Mejorar plan" : "Entrar"}
         </button>
       </aside>
 
       <div className="main">
         <header className="top">
-          <input className="search" placeholder="Buscar herramientas…" />
+          <form className="search" onSubmit={handleSearch} role="search">
+            <Search size={16} aria-hidden />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar herramientas" aria-label="Buscar herramientas" />
+          </form>
           <div className="top-right">
-            <span className="pill">{apiOk ? "API lista" : "API…"} · Supabase · {creditsLabel}</span>
+            <span className={apiOk ? "pill live" : "pill"}>{apiOk === null ? "Conectando" : apiOk ? "Servidor activo" : "Servidor dormido"}</span>
+            <span className="pill">{creditsLabel} créditos</span>
             <button className="ghost" onClick={() => setScreen(sessionEmail ? "Cuenta" : "Entrar")}>
               {sessionEmail ? displayName : "Entrar"}
             </button>
@@ -426,23 +463,28 @@ export default function App() {
           {screen === "Inicio" ? (
             <div className="home">
               <div className="hero">
+                <img className="hero-img" src={COVERS[3]} alt="" />
                 <div className="hero-copy">
-                  <h1>SOMBER AI STUDIO</h1>
-                  <p>Crea, edita y da vida a tus ideas con el poder de la IA</p>
-                  <button className="btn lg" onClick={() => setScreen("Crear video")}>Crear Proyecto →</button>
-                </div>
-                <div className="hero-art">
-                  <img src={COVERS[3]} alt="" />
+                  <h1>Lo que imaginas, en movimiento.</h1>
+                  <p>Escribe una idea y Somber la convierte en video, anime o imagen. Si no sabes por dónde empezar, el asistente te ayuda con el guion.</p>
+                  <div className="hero-actions">
+                    <button className="btn lg" onClick={() => setScreen("Crear video")}>Crear un video</button>
+                    <button className="btn-quiet lg" onClick={() => setScreen("Asistente")}>Hablar con el asistente</button>
+                  </div>
                 </div>
               </div>
-              <h2>Herramientas Destacadas</h2>
+              <h2>Herramientas</h2>
               <div className="tools">
-                {TOOLS.map(([title, target, icon]) => (
-                  <button key={title} className="tool-card" onClick={() => setScreen(target as Screen)}>
-                    <span className="tool-ico">{icon}</span>
-                    <strong>{title}</strong>
-                  </button>
-                ))}
+                {TOOLS.map(([title, target, desc]) => {
+                  const I = ICONS[target];
+                  return (
+                    <button key={title} className="tool-card" onClick={() => go(target as Screen)}>
+                      <span className="tool-ico">{I ? <I size={20} strokeWidth={1.7} aria-hidden /> : null}</span>
+                      <strong>{title}</strong>
+                      <small>{desc}</small>
+                    </button>
+                  );
+                })}
               </div>
               {jobs.length > 0 ? (
                 <>
@@ -463,21 +505,21 @@ export default function App() {
           {screen === "Crear video" || screen === "Anime" ? (
             <div className="create-layout">
               <div className="create-form card">
-                <h1>{screen === "Anime" ? "Anime Studio" : "Crear Video con IA"}</h1>
-                <p className="muted">{screen === "Anime" ? "Crea personajes, escenas y animaciones" : "Describe tu idea y deja que la IA la haga realidad"}</p>
+                <h1>{screen === "Anime" ? "Anime Studio" : "Crear video"}</h1>
+                <p className="muted">{screen === "Anime" ? "Crea personajes, escenas y animaciones originales." : "Describe la escena: quién aparece, qué pasa y cómo se ve."}</p>
                 {screen === "Anime" ? (
                   <div className="chips out-toggle">{(["Video", "Imagen"] as const).map((o) => (
                     <button key={o} type="button" className={animeOut === o ? "on" : ""} onClick={() => setAnimeOut(o)}>
-                      {o === "Video" ? "🎬 Animación" : "🖼️ Imagen / personaje"}
+                      {o === "Video" ? "Animación" : "Imagen o personaje"}
                     </button>
                   ))}</div>
                 ) : null}
                 <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={screen === "Anime" ? "Ejemplo: Una chica samurái de pelo plateado bajo la lluvia de neón…" : "Ejemplo: Un astronauta en la luna, estilo cinematográfico…"} maxLength={2000} />
                 <div className="prompt-tools">
                   <button type="button" className="ghost sm" disabled={enhancing || busy} onClick={() => void handleEnhance(screen === "Anime" ? (animeOut === "Imagen" ? "image" : "anime") : "video")}>
-                    {enhancing ? "Mejorando…" : "✨ Mejorar con IA"}
+                    {enhancing ? "Mejorando…" : <><Sparkles size={14} aria-hidden /> Mejorar con IA</>}
                   </button>
-                  <button type="button" className="ghost sm" onClick={() => setScreen("Asistente")}>🤖 Pedir ideas</button>
+                  <button type="button" className="ghost sm" onClick={() => setScreen("Asistente")}><MessageSquare size={14} aria-hidden /> Pedir ideas</button>
                   <span className="char-count">{prompt.length}/2000</span>
                 </div>
                 <p className="label">Estilo</p>
@@ -506,21 +548,21 @@ export default function App() {
                   </div>
                 </div>
                 <button className="btn wide lg" disabled={busy} onClick={() => void handleCreate(screen === "Anime" ? (animeOut === "Imagen" ? "anime_image" : "anime") : "video")}>
-                  {busy ? "Generando…" : screen === "Anime" ? (animeOut === "Imagen" ? "Generar Imagen Anime →" : "Generar Anime →") : "Generar Video →"}
+                  {busy ? "Generando…" : screen === "Anime" ? (animeOut === "Imagen" ? "Generar imagen" : "Generar animación") : "Generar video"}
                 </button>
                 {notice ? <p className="notice">{notice}</p> : null}
               </div>
               <div className="preview-pane card">
-                <p className="label">Vista Previa</p>
+                <p className="label">Vista previa</p>
                 {result?.image_url ? (
                   <>
                     <img className="preview" src={result.image_url} alt="Resultado" />
-                    <button className="btn wide" style={{ marginTop: 10 }} onClick={() => { setI2vImage(result.image_url!); setScreen("Imagen a Video"); }}>Animar esta imagen →</button>
+                    <button className="btn wide" style={{ marginTop: 10 }} onClick={() => { setI2vImage(result.image_url!); setScreen("Imagen a Video"); }}>Animar esta imagen</button>
                   </>
                 ) : result?.video_url ? (
                   <video className="preview" controls src={result.video_url} />
                 ) : (
-                  <div className="preview empty">{busy ? "Generando…" : "Tu resultado aparecerá aquí"}</div>
+                  <div className={busy ? "preview empty working" : "preview empty"}>{busy ? "Generando, no cierres esta pantalla" : "El resultado aparecerá aquí"}</div>
                 )}
               </div>
             </div>
@@ -529,10 +571,11 @@ export default function App() {
           {screen === "Imagen a Video" ? (
             <div className="create-layout">
               <div className="card create-form">
-                <h1>Imagen a Video</h1>
-                <p className="muted">Convierte tus imágenes en videos increíbles</p>
+                <h1>Imagen a video</h1>
+                <p className="muted">Sube una foto o ilustración y describe cómo debe moverse.</p>
                 <label className="dropzone">
-                  <span>{i2vImage ? "✅ Imagen lista · toca para cambiarla" : "☁ Arrastra tu imagen aquí o selecciona un archivo"}</span>
+                  <Upload size={22} aria-hidden />
+                  <span>{i2vImage ? "Imagen lista. Toca para cambiarla" : "Elige una imagen de tu dispositivo"}</span>
                   <small>JPG, PNG, WEBP</small>
                   <input hidden type="file" accept="image/*" onChange={(e) => {
                     const f = e.target.files?.[0]; e.target.value = "";
@@ -543,7 +586,7 @@ export default function App() {
                 <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ejemplo: el personaje gira la cabeza y sonríe, el viento mueve su pelo…" maxLength={2000} />
                 <div className="prompt-tools">
                   <button type="button" className="ghost sm" disabled={enhancing || busy} onClick={() => void handleEnhance(look === "Anime" ? "anime" : "video")}>
-                    {enhancing ? "Mejorando…" : "✨ Mejorar con IA"}
+                    {enhancing ? "Mejorando…" : <><Sparkles size={14} aria-hidden /> Mejorar con IA</>}
                   </button>
                   <span className="char-count">{prompt.length}/2000</span>
                 </div>
@@ -561,7 +604,7 @@ export default function App() {
                     ))}</div>
                   </div>
                 </div>
-                <button className="btn wide lg" disabled={busy} onClick={() => void handleCreate("i2v")}>{busy ? "Generando…" : "Animar Imagen →"}</button>
+                <button className="btn wide lg" disabled={busy} onClick={() => void handleCreate("i2v")}>{busy ? "Generando…" : "Animar imagen"}</button>
                 {notice ? <p className="notice">{notice}</p> : null}
               </div>
               <div className="preview-pane card">
@@ -582,11 +625,11 @@ export default function App() {
               <div className="row-between">
                 <div>
                   <h1>Asistente IA</h1>
-                  <p className="muted">Guiones, personajes, estilos y prompts listos para generar</p>
+                  <p className="muted">Guiones, personajes, estilos y prompts listos para generar.</p>
                 </div>
-                <button className="ghost sm" onClick={() => setChat((c) => c.slice(0, 1))}>Nueva charla</button>
+                <button className="ghost sm" onClick={() => setChat((c) => c.slice(0, 1))}><RotateCcw size={14} aria-hidden /> Nueva conversación</button>
               </div>
-              <div className="chat-log">
+              <div className="chat-log" aria-live="polite">
                 {chat.map((m, i) => {
                   const p = m.role === "assistant" ? extractPrompt(m.content) : "";
                   return (
@@ -594,9 +637,9 @@ export default function App() {
                       <p>{m.content}</p>
                       {p ? (
                         <div className="chips">
-                          <button type="button" onClick={() => applyPrompt(p, "Crear video")}>🎬 Usar en video</button>
-                          <button type="button" onClick={() => { setAnimeOut("Video"); applyPrompt(p, "Anime"); }}>🎌 Usar en anime</button>
-                          <button type="button" onClick={() => { setAnimeOut("Imagen"); applyPrompt(p, "Anime"); }}>🖼️ Usar en imagen</button>
+                          <button type="button" onClick={() => applyPrompt(p, "Crear video")}>Usar en video</button>
+                          <button type="button" onClick={() => { setAnimeOut("Video"); applyPrompt(p, "Anime"); }}>Usar en anime</button>
+                          <button type="button" onClick={() => { setAnimeOut("Imagen"); applyPrompt(p, "Anime"); }}>Usar en imagen</button>
                         </div>
                       ) : null}
                     </div>
@@ -613,8 +656,8 @@ export default function App() {
                 </div>
               ) : null}
               <form className="chat-input" onSubmit={(e) => { e.preventDefault(); void sendChat(); }}>
-                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Escribe tu mensaje…" maxLength={4000} />
-                <button className="btn" disabled={chatBusy || !chatInput.trim()}>Enviar</button>
+                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Escribe tu mensaje" aria-label="Mensaje" maxLength={4000} />
+                <button className="btn icon" disabled={chatBusy || !chatInput.trim()} aria-label="Enviar"><Send size={18} aria-hidden /></button>
               </form>
             </div>
           ) : null}
@@ -622,45 +665,52 @@ export default function App() {
           {screen === "Editor" ? (
             <div className="editor">
               <div className="editor-top">
-                <strong>Editor Profesional</strong>
+                <div>
+                  <h1>Editor</h1>
+                  <p className="muted">Ajusta el color de tu video y descárgalo.</p>
+                </div>
                 <div className="editor-actions">
-                  <button className="ghost">Guardar</button>
-                  <button className="btn">Exportar</button>
+                  <button className="ghost sm" onClick={() => { setAdjust({ brillo: 100, contraste: 100, saturacion: 100 }); setEffect(""); }}><RotateCcw size={14} aria-hidden /> Restablecer</button>
+                  {editorVideo ? (
+                    <a className="btn" href={editorVideo} download="somber-video.mp4" target="_blank" rel="noreferrer"><Download size={16} aria-hidden /> Descargar video</a>
+                  ) : (
+                    <button className="btn" disabled><Download size={16} aria-hidden /> Descargar video</button>
+                  )}
                 </div>
               </div>
               <div className="editor-body">
                 <div className="editor-lib">
-                  <p className="label">Archivos</p>
-                  <label className="btn tiny">Importar
-                    <input hidden type="file" accept="video/*,image/*,audio/*" onChange={(e)=>{const f=e.target.files?.[0];e.target.value="";if(f)saveDeviceFile(f);}} />
-                  </label>
+                  <div className="row-between">
+                    <p className="label">Archivos</p>
+                    <label className="btn tiny">Importar
+                      <input hidden type="file" accept="video/*,image/*,audio/*" onChange={(e)=>{const f=e.target.files?.[0];e.target.value="";if(f)saveDeviceFile(f);}} />
+                    </label>
+                  </div>
                   <div className="lib-list">
                     {files.map((f)=>(
-                      <button key={f.id} type="button" className="lib-item">{f.name}</button>
+                      <button key={f.id} type="button" className="lib-item" onClick={() => { if (f.type.startsWith("video/")) setApiResult({ video_url: f.url }); }}>{f.name}</button>
                     ))}
-                    {files.length===0 ? <p className="muted">Sin archivos</p> : null}
+                    {files.length===0 ? <p className="muted small">Importa un video o genera uno para editarlo.</p> : null}
                   </div>
                 </div>
                 <div className="editor-stage">
-                  {files.find((f)=>f.type.startsWith("video/")) || result?.video_url ? (
-                    <video className="preview" controls src={result?.video_url || files.find((f)=>f.type.startsWith("video/"))?.url} />
+                  {editorVideo ? (
+                    <video className="preview" controls src={editorVideo} style={{ filter: editorFilter }} />
                   ) : (
-                    <div className="preview empty">Vista previa</div>
+                    <div className="preview empty">Aún no hay video. Genera uno o impórtalo.</div>
                   )}
-                  <div className="timeline">
-                    <div className="track"><span>V1</span><i className="clip v" /></div>
-                    <div className="track"><span>A1</span><i className="clip a" /></div>
-                    <div className="track"><span>T1</span><i className="clip t" /></div>
-                  </div>
+                  <p className="muted small">Los ajustes se ven en la vista previa. La descarga guarda el video original; la exportación con ajustes llegará pronto.</p>
                 </div>
                 <div className="editor-props">
                   <p className="label">Ajustes</p>
-                  <label>Brillo<input type="range" defaultValue={50} /></label>
-                  <label>Contraste<input type="range" defaultValue={50} /></label>
-                  <label>Saturación<input type="range" defaultValue={50} /></label>
+                  {([["brillo","Brillo"],["contraste","Contraste"],["saturacion","Saturación"]] as const).map(([k, l]) => (
+                    <label key={k}>{l} <span>{adjust[k]}%</span>
+                      <input type="range" min={0} max={200} value={adjust[k]} onChange={(e) => setAdjust((a) => ({ ...a, [k]: Number(e.target.value) }))} />
+                    </label>
+                  ))}
                   <p className="label">Efectos</p>
-                  <div className="chips">{["Glow","Glitch","Blur","Neon"].map((x)=>(
-                      <button key={x} type="button">{x}</button>
+                  <div className="chips">{Object.keys(FILTERS).map((x)=>(
+                      <button key={x} type="button" className={effect===x?"on":""} onClick={() => setEffect((c) => (c === x ? "" : x))}>{x}</button>
                     ))}</div>
                 </div>
               </div>
@@ -669,13 +719,13 @@ export default function App() {
 
           {screen === "Voces" ? (
             <div className="card narrow-card">
-              <h1>Voces y Música</h1>
-              <p className="muted">Dale voz a tus videos con IA</p>
+              <h1>Voces y música</h1>
+              <p className="muted">Narración y música para tus videos. Esta función está en preparación.</p>
               <p className="label">Voces IA</p>
               <div className="voice-grid">
                 {["Masculina","Femenina","Clonada","Robot"].map((v)=>(
                   <button key={v} type="button" className={voice===v?"voice on":"voice"} onClick={()=>setVoice(v)}>
-                    <span>🎙</span>{v}
+                    <Music size={18} aria-hidden />{v}
                   </button>
                 ))}
               </div>
@@ -683,15 +733,15 @@ export default function App() {
               <div className="chips">{["Épica","Chill","Cyber","Ambient"].map((m)=>(
                   <button key={m} type="button">{m}</button>
                 ))}</div>
-              <button className="btn wide">Aplicar Voz →</button>
+              <button className="btn wide" disabled>Disponible pronto</button>
             </div>
           ) : null}
 
           {screen === "Proyectos" ? (
             <>
               <div className="row-between">
-                <h1>Mis Proyectos</h1>
-                <button className="btn" onClick={() => setScreen("Crear video")}>+ Nuevo Proyecto</button>
+                <h1>Mis proyectos</h1>
+                <button className="btn" onClick={() => setScreen("Crear video")}>Nuevo proyecto</button>
               </div>
               <div className="grid4">
                 {(jobs.length ? jobs.map((j)=>({id:j.id,title:j.prompt.slice(0,32),sub:j.status,src:j.video_url||""})) : [
@@ -712,13 +762,13 @@ export default function App() {
           {screen === "Nube" ? (
             <div className="card center-card">
               <h1>Nube</h1>
-              <p className="muted">Guarda tus proyectos y accede desde cualquier lugar</p>
-              <div className="cloud-ico">☁</div>
+              <p className="muted">Guarda archivos para usarlos en el editor y en Imagen a video.</p>
+              <div className="cloud-ico"><Cloud size={48} strokeWidth={1.4} aria-hidden /></div>
               <label className="btn lg">
-                Subir a la Nube
+                <Upload size={16} aria-hidden /> Subir archivo
                 <input hidden type="file" accept="video/*,image/*,audio/*" onChange={(e)=>{const f=e.target.files?.[0];e.target.value="";if(f)saveDeviceFile(f);}} />
               </label>
-              <p className="muted">Por ahora se guarda en este dispositivo. Supabase Storage próximamente.</p>
+              <p className="muted small">Por ahora los archivos se guardan solo en este dispositivo.</p>
               <div className="grid4" style={{marginTop:16}}>
                 {files.map((f)=>(
                   <article key={f.id} className="card"><strong>{f.name}</strong><small>{f.type}</small></article>
@@ -729,8 +779,8 @@ export default function App() {
 
           {screen === "Planes" || screen === "Pago" ? (
             <>
-              <h1>Planes y Créditos</h1>
-              <p className="muted">Elige tu plan y sigue creando sin límites</p>
+              <h1>Planes y créditos</h1>
+              <p className="muted">Cada generación usa 1 crédito. Los pagos se activarán al terminar la beta.</p>
               <div className="plans">
                 {[
                   ["Basico","$4.99","100 créditos","Acceso básico","Soporte por email"],
@@ -738,18 +788,18 @@ export default function App() {
                   ["Ultra","$19.99","1,000 créditos","Funciones premium","Soporte 24/7"],
                 ].map(([name, price, a, b, c]) => (
                   <article key={name} className={name === "Pro" ? "card plan pop" : "card plan"}>
-                    {name === "Pro" ? <span className="badge">Más Popular</span> : null}
+                    {name === "Pro" ? <span className="badge">Más elegido</span> : null}
                     <h2>{name}</h2>
                     <p className="price">{price}<small>/mes</small></p>
                     <ul>
                       <li>{a}</li><li>{b}</li><li>{c}</li>
                     </ul>
-                    <button className="btn wide" onClick={() => {
+                    <button className={name === planActivo ? "btn-quiet wide" : "btn wide"} onClick={() => {
                       setPlanElegido(name);
                       localStorage.setItem("somber-plan-activa", name);
                       setPlanActivo(name);
-                      setNotice(`Plan ${name} marcado (Stripe pendiente).`);
-                    }}>Seleccionar</button>
+                      setNotice(`Elegiste el plan ${name}. Te avisaremos cuando se puedan hacer pagos.`);
+                    }}>{name === planActivo ? "Plan actual" : `Elegir ${name}`}</button>
                   </article>
                 ))}
               </div>
@@ -759,7 +809,7 @@ export default function App() {
 
           {screen === "Cuenta" ? (
             <div className="card narrow-card">
-              <h1>Mi Cuenta</h1>
+              <h1>Mi cuenta</h1>
               <div className="profile-row">
                 <div className="avatar lg">{displayName.slice(0,1).toUpperCase()}</div>
                 <div>
@@ -789,7 +839,8 @@ export default function App() {
           {screen === "Soporte" ? (
             <div className="card narrow-card">
               <h1>Soporte</h1>
-              <p className="muted">Escribe a payple9105@gmail.com</p>
+              <p className="muted">¿Algo no funciona o tienes una idea? Escríbenos y te respondemos.</p>
+              <p><a className="link" href="mailto:payple9105@gmail.com">payple9105@gmail.com</a></p>
               <button className="btn" onClick={() => setScreen("Inicio")}>Volver</button>
             </div>
           ) : null}
@@ -797,7 +848,7 @@ export default function App() {
           {screen === "Términos" || screen === "Privacidad" ? (
             <div className="card narrow-card">
               <h1>{screen === "Términos" ? "Términos de uso" : "Privacidad"}</h1>
-              <p className="muted">Beta pública · Noviembre 2026</p>
+              <p className="muted">Beta pública, noviembre de 2026</p>
               <p>{screen === "Términos" ? "SOMBER AI STUDIO es un servicio en fase beta." : "Guardamos correo, plan y créditos en Supabase."}</p>
               <button className="btn" onClick={() => setScreen("Inicio")}>Volver</button>
             </div>
@@ -807,7 +858,10 @@ export default function App() {
 
       <nav className="mobile">
         {([["Inicio","Inicio"],["Asistente","IA"],["Crear video","Crear"],["Anime","Anime"],["Proyectos","Proyectos"],["Cuenta","Cuenta"]] as const).map(([id,label])=>(
-          <button key={id} className={screen===id?"on":""} onClick={()=>setScreen(id)}>{label}</button>
+          <button key={id} className={screen===id?"on":""} onClick={()=>go(id)}>
+            {(() => { const I = ICONS[id]; return I ? <I size={20} strokeWidth={1.8} aria-hidden /> : null; })()}
+            <span>{label}</span>
+          </button>
         ))}
       </nav>
     </div>
