@@ -2,4 +2,3 @@ fastapi
 uvicorn[standard]
 python-multipart
 httpx
-anthropic>=2.12

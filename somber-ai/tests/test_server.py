@@ -1,6 +1,5 @@
 """Pruebas de la API sin red: Supabase, fal.ai y Claude están simulados."""
 
-import json
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -62,7 +61,6 @@ def body(**extra):
 class GenerateTests(unittest.TestCase):
     def setUp(self) -> None:
         server._hits.clear()
-        server._enhance_hits.clear()
         self.db = FakeDB()
         self.patches = [
             mock.patch.object(server, "FAL_KEY", "fal-test"),
@@ -91,16 +89,16 @@ class GenerateTests(unittest.TestCase):
 
     def test_unpaid_job_is_rejected(self) -> None:
         self.db.charged = False
-        with mock.patch.object(server, "_start_fal") as fal:
+        with mock.patch.object(server, "_fal_submit") as fal:
             r = self.client.post("/generate", json=body(), headers=AUTH)
         self.assertEqual(r.status_code, 402)
         fal.assert_not_called()
 
     def test_job_cannot_be_reused(self) -> None:
-        async def ok(_req):
-            return "req-1"
+        async def ok(kind, payload):
+            return {"estado": "procesando", "tipo": kind, "request_id": "req-1"}
 
-        with mock.patch.object(server, "_start_fal", ok):
+        with mock.patch.object(server, "_fal_submit", ok):
             first = self.client.post("/generate", json=body(), headers=AUTH)
             second = self.client.post("/generate", json=body(), headers=AUTH)
         self.assertEqual(first.status_code, 200)
@@ -110,34 +108,37 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual(second.status_code, 402)
 
     def test_fal_failure_refunds(self) -> None:
-        async def fail(_req):
+        async def fail(kind, payload):
             raise HTTPException(status_code=502, detail="rechazado")
 
-        with mock.patch.object(server, "_start_fal", fail):
+        with mock.patch.object(server, "_fal_submit", fail):
             r = self.client.post("/generate", json=body(), headers=AUTH)
         self.assertEqual(r.status_code, 502)
         self.assertEqual(self.db.refunds, 1)
+
+    def test_image_and_i2v_also_require_payment(self) -> None:
+        self.db.charged = False
+        with mock.patch.object(server, "_fal_submit") as fal:
+            img = self.client.post("/image", json={"text": "chica anime", "aspect": "1:1", "job_id": JOB}, headers=AUTH)
+            i2v = self.client.post(
+                "/image-to-video", json={**body(), "image": "https://example.com/a.png"}, headers=AUTH
+            )
+        self.assertEqual((img.status_code, i2v.status_code), (402, 402))
+        fal.assert_not_called()
+
+    def test_image_paid_ok(self) -> None:
+        async def ok(kind, payload):
+            return {"estado": "procesando", "tipo": kind, "request_id": "img-1"}
+
+        with mock.patch.object(server, "_fal_submit", ok):
+            r = self.client.post("/image", json={"text": "chica anime", "aspect": "1:1", "job_id": JOB}, headers=AUTH)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.db.request_id, "img-1")
 
     def test_missing_service_key(self) -> None:
         with mock.patch.object(server, "SUPABASE_SERVICE_KEY", None):
             r = self.client.post("/generate", json=body(), headers=AUTH)
         self.assertEqual(r.status_code, 503)
-
-
-class FakeFal:
-    def __init__(self, status: str) -> None:
-        self.status = status
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    async def get(self, url, headers=None):
-        if url.endswith("/status"):
-            return SimpleNamespace(status_code=200, json=lambda: {"status": self.status})
-        return SimpleNamespace(status_code=200, json=lambda: {"video": {"url": "https://v/x.mp4"}})
 
 
 class StatusTests(unittest.TestCase):
@@ -159,9 +160,15 @@ class StatusTests(unittest.TestCase):
         for p in self.patches:
             p.stop()
 
-    def poll(self, status: str, rid: str = "req-1"):
-        with mock.patch.object(server.httpx, "AsyncClient", lambda **_: FakeFal(status)):
-            return self.client.get(f"/generate/{rid}", params={"job_id": JOB}, headers=AUTH)
+    def poll(self, status: str, rid: str = "req-1", kind: str = "video"):
+        async def fal_status(k, request_id):
+            out = {"request_id": request_id, "tipo": k, "estado": status}
+            if status == "COMPLETED":
+                out["video_url"] = "https://v/x.mp4"
+            return out
+
+        with mock.patch.object(server, "_fal_status", fal_status):
+            return self.client.get(f"/jobs/{kind}/{rid}", params={"job_id": JOB}, headers=AUTH)
 
     def test_failed_generation_refunds_once(self) -> None:
         self.assertTrue(self.poll("FAILED").json()["reembolsado"])
@@ -172,70 +179,18 @@ class StatusTests(unittest.TestCase):
         self.assertFalse(self.poll("FAILED", rid="req-ajeno").json()["reembolsado"])
         self.assertEqual(self.db.refunds, 0)
 
+    def test_old_status_route_also_refunds(self) -> None:
+        async def fal_status(k, request_id):
+            return {"request_id": request_id, "tipo": k, "estado": "FAILED"}
+
+        with mock.patch.object(server, "_fal_status", fal_status):
+            r = self.client.get("/generate/req-1", params={"job_id": JOB}, headers=AUTH)
+        self.assertTrue(r.json()["reembolsado"])
+
     def test_completed_returns_video(self) -> None:
         r = self.poll("COMPLETED").json()
         self.assertEqual(r["video_url"], "https://v/x.mp4")
         self.assertEqual(self.db.refunds, 0)
-
-
-def claude_reply(payload: dict, stop_reason: str = "end_turn"):
-    return SimpleNamespace(
-        stop_reason=stop_reason,
-        content=[SimpleNamespace(type="text", text=json.dumps(payload))],
-    )
-
-
-class EnhanceTests(unittest.TestCase):
-    def setUp(self) -> None:
-        server._enhance_hits.clear()
-        self.create = mock.AsyncMock(
-            return_value=claude_reply(
-                {"prompt": "A samurai cat in the rain, slow dolly-in...", "titulo": "Gato samurái", "explicacion": "Añadí cámara y luz."}
-            )
-        )
-        fake_claude = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=self.create)))
-        self.patches = [
-            mock.patch.object(server, "_claude", fake_claude),
-            mock.patch.object(server, "_current_user", fake_user),
-        ]
-        for p in self.patches:
-            p.start()
-        self.client = TestClient(server.app)
-
-    def tearDown(self) -> None:
-        for p in self.patches:
-            p.stop()
-
-    def test_enhance_ok(self) -> None:
-        r = self.client.post("/enhance", json={"idea": "gato samurái lluvia", "style": "Anime", "mode": "anime"}, headers=AUTH)
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["titulo"], "Gato samurái")
-        kwargs = self.create.call_args.kwargs
-        self.assertEqual(kwargs["model"], "claude-opus-5-5")
-        self.assertEqual(kwargs["fallbacks"], "default")
-        self.assertEqual(kwargs["output_config"]["format"]["type"], "json_schema")
-        self.assertIn("<idea>\ngato samurái lluvia\n</idea>", kwargs["messages"][0]["content"])
-
-    def test_enhance_requires_login(self) -> None:
-        with mock.patch.object(server, "_current_user", no_user):
-            r = self.client.post("/enhance", json={"idea": "gato samurái"})
-        self.assertEqual(r.status_code, 401)
-        self.create.assert_not_called()
-
-    def test_refusal(self) -> None:
-        self.create.return_value = claude_reply({}, stop_reason="refusal")
-        r = self.client.post("/enhance", json={"idea": "algo"}, headers=AUTH)
-        self.assertEqual(r.status_code, 422)
-
-    def test_rate_limit(self) -> None:
-        with mock.patch.object(server, "ENHANCE_LIMIT", 2):
-            codes = [self.client.post("/enhance", json={"idea": "gato samurái"}, headers=AUTH).status_code for _ in range(3)]
-        self.assertEqual(codes, [200, 200, 429])
-
-    def test_not_configured(self) -> None:
-        with mock.patch.object(server, "_claude", None):
-            r = self.client.post("/enhance", json={"idea": "gato samurái"}, headers=AUTH)
-        self.assertEqual(r.status_code, 503)
 
 
 if __name__ == "__main__":
