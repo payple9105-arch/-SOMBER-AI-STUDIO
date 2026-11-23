@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  LayoutGrid, MessageSquare, Clapperboard, Image as ImageIcon, Sparkles, Scissors, Music, Brush,
+  FolderOpen, Cloud, CreditCard, User, Send, Upload, Download, Search, RotateCcw,
+  type LucideIcon,
+} from "lucide-react";
+import {
   supabase, supabaseConfigured, fetchProfile, spendCredits, refundCredits,
   insertJob, updateJob, listMyJobs, type Profile, type JobRow,
 } from "./lib/supabase";
 
-type ApiResult = { estado?: string; mensaje?: string; request_id?: string; status_url?: string; video_url?: string };
+type ApiResult = { estado?: string; mensaje?: string; request_id?: string; video_url?: string | null; image_url?: string | null };
+type JobKind = "video" | "i2v" | "image";
+type CreateKind = "video" | "anime" | "anime_image" | "i2v";
+type ChatMsg = { role: "user" | "assistant"; content: string };
 
 const API_URL = "https://somber-ai-studio-api.onrender.com";
 const CREDIT_COST = 1;
@@ -14,16 +22,23 @@ const RATE_WINDOW = 60 * 60 * 1000;
 
 const NAV = [
   ["Inicio", "Inicio"],
-  ["Crear video", "Crear Video con IA"],
-  ["Imagen a Video", "Imagen a Video"],
+  ["Asistente", "Asistente IA"],
+  ["Crear video", "Crear video"],
+  ["Imagen a Video", "Imagen a video"],
   ["Anime", "Anime Studio"],
-  ["Editor", "Editor Profesional"],
-  ["Voces", "Voces y Música"],
-  ["Proyectos", "Mis Proyectos"],
+  ["Editor", "Editor"],
+  ["Voces", "Voces y música"],
+  ["Proyectos", "Mis proyectos"],
   ["Nube", "Nube"],
-  ["Planes", "Planes y Créditos"],
+  ["Planes", "Planes y créditos"],
   ["Cuenta", "Cuenta"],
 ] as const;
+
+const ICONS: Record<string, LucideIcon> = {
+  Inicio: LayoutGrid, Asistente: MessageSquare, "Crear video": Clapperboard, "Imagen a Video": ImageIcon,
+  Anime: Brush, Editor: Scissors, Voces: Music, Proyectos: FolderOpen, Nube: Cloud,
+  Planes: CreditCard, Cuenta: User,
+};
 
 type Screen = (typeof NAV)[number][0] | "Entrar" | "Soporte" | "Términos" | "Privacidad" | "Pago";
 
@@ -32,12 +47,50 @@ const COVERS = [`${base}gallery/hero.jpg`, `${base}gallery/neon.jpg`, `${base}ga
 const STYLES = [["Cinemático","cinematico"],["Anime","anime"],["Cyberpunk","cyberpunk"],["Documental","documental"],["Noir","noir"]] as const;
 const ANIME_STYLES = [["Shonen épico","shonen"],["Ghibli suave","ghibli"],["Noir urbano","noir"],["Mecha nocturno","mecha"],["Romance pastel","romance"]] as const;
 const TOOLS = [
-  ["Crear Video con IA", "Crear video", "🎬"],
-  ["Imagen a Video", "Imagen a Video", "🖼️"],
-  ["Anime Studio", "Anime", "🎌"],
-  ["Editor Profesional", "Editor", "🎞️"],
-  ["Voces y Música", "Voces", "🎵"],
+  ["Asistente IA", "Asistente", "Ideas, guiones y prompts"],
+  ["Crear video", "Crear video", "De texto a video"],
+  ["Imagen a video", "Imagen a Video", "Da movimiento a una foto"],
+  ["Anime Studio", "Anime", "Personajes y escenas"],
+  ["Editor", "Editor", "Ajusta color y exporta"],
 ] as const;
+
+const FILTERS: Record<string, string> = {
+  Glow: "drop-shadow(0 0 12px rgba(139,124,255,.6))", Blur: "blur(2px)",
+  Neon: "hue-rotate(40deg) saturate(1.6)", "B/N": "grayscale(1)",
+};
+
+const isImageUrl = (u?: string | null) => !!u && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(u);
+
+function extractPrompt(text: string) {
+  const m = text.match(/PROMPT:\s*(.+)/i);
+  return m ? m[1].trim().replace(/^["'`*]+|["'`*]+$/g, "") : "";
+}
+
+async function apiError(r: Response) {
+  try {
+    const d = await r.json();
+    const det = d?.detail;
+    return typeof det === "string" ? det : det?.mensaje || `El servidor respondió ${r.status}.`;
+  } catch { return `El servidor respondió ${r.status}.`; }
+}
+
+// Reduce la foto a 1280 px como máximo para que viaje rápido al servidor.
+function imageToDataUrl(file: File, max = 1280): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL("image/jpeg", 0.9));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("No se pudo leer la imagen.")); };
+    img.src = url;
+  });
+}
 
 function canGenerateLocal() {
   try {
@@ -74,6 +127,22 @@ export default function App() {
   const [apiOk, setApiOk] = useState<boolean | null>(null);
   const pollRef = useRef<number | null>(null);
   const [voice, setVoice] = useState("Femenina");
+  const [animeOut, setAnimeOut] = useState<"Video" | "Imagen">("Video");
+  const [i2vImage, setI2vImage] = useState("");
+  const [enhancing, setEnhancing] = useState(false);
+  const [adjust, setAdjust] = useState({ brillo: 100, contraste: 100, saturacion: 100 });
+  const [effect, setEffect] = useState("");
+  const [query, setQuery] = useState("");
+
+  const go = (target: Screen) => { setNotice(""); setScreen(target); };
+  const [chat, setChat] = useState<ChatMsg[]>([
+    { role: "assistant", content: "¡Hola! Soy SOMBER, tu asistente creativo. Puedo ayudarte con guiones, personajes de anime, estilos y prompts listos para generar. ¿Qué quieres crear?" },
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, chatBusy]);
 
   useEffect(() => {
     if (screen === "Anime") setLook((c) => (ANIME_STYLES.some(([n]) => n === c) ? c : "Shonen épico"));
@@ -132,22 +201,23 @@ export default function App() {
     };
   }
 
-  async function pollJob(requestId: string, jobDbId?: string, statusUrl?: string) {
+  async function pollJob(kind: JobKind, requestId: string, jobDbId?: string) {
     try {
-      const r = await fetch(statusUrl || `${API_URL}/generate/${requestId}`);
+      const r = await fetch(`${API_URL}/jobs/${kind}/${encodeURIComponent(requestId)}`);
       if (!r.ok) return;
       const data = await r.json();
-      const status = (data.status || data.estado || "").toLowerCase();
-      const video = data.video_url || data.video || data.output?.video?.url || data.response?.video?.url;
-      if (status === "completed" || status === "ok" || video) {
-        setApiResult((prev) => ({ ...(prev || {}), estado: "completed", video_url: video, mensaje: "Listo" }));
+      const status = (data.estado || data.status || "").toLowerCase();
+      const video: string | null = data.video_url || null;
+      const image: string | null = data.image_url || null;
+      if (status === "completed" || video || image) {
+        setApiResult((prev) => ({ ...(prev || {}), estado: "completed", video_url: video, image_url: image, mensaje: "Listo" }));
         if (jobDbId && supabaseConfigured) {
-          try { await updateJob(jobDbId, { status: "completed", video_url: video || null }); setJobs(await listMyJobs(20)); } catch {}
+          try { await updateJob(jobDbId, { status: "completed", video_url: video || image || null }); setJobs(await listMyJobs(20)); } catch {}
         }
         if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
         setBusy(false);
-        setNotice(video ? "Video listo." : "Generación completada.");
-      } else if (status === "failed" || status === "error") {
+        setNotice(image ? "Imagen lista." : video ? "Video listo." : "Generación completada.");
+      } else if (status === "failed" || status === "cancelled" || status === "error") {
         setApiResult((prev) => ({ ...(prev || {}), estado: "error", mensaje: data.detail || data.mensaje || "Falló" }));
         if (jobDbId && supabaseConfigured) {
           try {
@@ -163,17 +233,71 @@ export default function App() {
     } catch {}
   }
 
-  async function handleCreate(kind: "video" | "anime") {
+  async function handleEnhance(kind: "video" | "anime" | "image") {
+    if (prompt.trim().length < 3) { setNotice("Escribe primero una idea corta."); return; }
+    setEnhancing(true); setNotice("");
+    try {
+      const r = await fetch(`${API_URL}/enhance`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: prompt.trim(), kind, style: look }),
+      });
+      if (!r.ok) throw new Error(await apiError(r));
+      const d = await r.json();
+      if (d.prompt) setPrompt(String(d.prompt).slice(0, 2000));
+      setNotice(d.fuente === "ia" ? "Prompt mejorado con IA. Revísalo y genera." : "Prompt mejorado. Revísalo y genera.");
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "No se pudo mejorar el prompt.");
+    } finally { setEnhancing(false); }
+  }
+
+  async function sendChat(text?: string) {
+    const content = (text ?? chatInput).trim();
+    if (!content || chatBusy) return;
+    const next: ChatMsg[] = [...chat, { role: "user", content }];
+    setChat(next); setChatInput(""); setChatBusy(true);
+    try {
+      const r = await fetch(`${API_URL}/chat`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: next.slice(1).slice(-20) }),
+      });
+      if (!r.ok) throw new Error(await apiError(r));
+      const d = await r.json();
+      setChat((c) => [...c, { role: "assistant", content: String(d.reply || "…") }]);
+    } catch (e) {
+      setChat((c) => [...c, { role: "assistant", content: `⚠️ ${e instanceof Error ? e.message : "No pude responder ahora."}` }]);
+    } finally { setChatBusy(false); }
+  }
+
+  function applyPrompt(p: string, target: Screen) {
+    setPrompt(p.slice(0, 2000)); setNotice("Prompt copiado desde el asistente."); setScreen(target);
+  }
+
+  async function handleI2vFile(file: File) {
+    saveDeviceFile(file);
+    try { setI2vImage(await imageToDataUrl(file)); }
+    catch (e) { setNotice(e instanceof Error ? e.message : "No se pudo leer la imagen."); }
+  }
+
+  async function handleCreate(kind: CreateKind) {
     if (prompt.trim().length < 8) { setNotice("Escribe una descripción un poco más larga."); return; }
+    if (kind === "i2v" && !i2vImage) { setNotice("Sube primero una imagen."); return; }
     if (!canGenerateLocal()) { setNotice(`Límite de ${RATE_MAX} generaciones por hora.`); return; }
     if (supabaseConfigured && !sessionEmail) { setNotice("Entra con tu cuenta para generar."); setScreen("Entrar"); return; }
     setNotice(""); setApiResult(null); setBusy(true);
-    const text = [prompt.trim(), `Estilo: ${look}.`, `Formato: ${format}.`, `Duración: ${seconds}.`].join("\n");
+    const text = prompt.trim();
+    const duration = parseInt(seconds, 10) || 5;
+    const jobKind: JobKind = kind === "i2v" ? "i2v" : kind === "anime_image" ? "image" : "video";
+    const endpoint = kind === "i2v" ? "/image-to-video" : kind === "anime_image" ? "/image" : "/generate";
+    const body =
+      kind === "anime_image" ? { text, style: look, aspect: format, anime: true }
+      : kind === "i2v" ? { text, style: look, aspect: format, duration_sec: duration, anime: look === "Anime", image: i2vImage }
+      : { text, style: look, aspect: format, duration_sec: duration, anime: kind === "anime" };
+    const reason = { video: "generate_video", anime: "generate_anime", anime_image: "generate_image", i2v: "generate_i2v" }[kind];
     let jobDbId: string | undefined;
     try {
       if (supabaseConfigured && sessionEmail) {
         try {
-          const p = await spendCredits(CREDIT_COST, kind === "anime" ? "generate_anime" : "generate_video");
+          const p = await spendCredits(CREDIT_COST, reason);
           setProfile(p);
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -182,13 +306,19 @@ export default function App() {
           return;
         }
       }
-      const response = await fetch(`${API_URL}/generate`, {
+      const response = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, aspect: format, duration_sec: parseInt(seconds, 10) || 5 }),
+        body: JSON.stringify(body),
       });
-      if (response.status === 429) { setNotice("Límite del servidor."); setBusy(false); return; }
-      if (!response.ok) throw new Error(`El servidor respondió ${response.status}.`);
+      if (!response.ok) {
+        const msg = await apiError(response);
+        if (supabaseConfigured && sessionEmail && profile && !profile.is_creator) {
+          try { setProfile(await refundCredits(CREDIT_COST, "refund_failed_job")); } catch {}
+        }
+        setNotice(response.status === 429 ? "Límite del servidor. Prueba más tarde." : msg);
+        setBusy(false); return;
+      }
       const data = (await response.json()) as ApiResult;
       setApiResult(data);
       markGenerateLocal();
@@ -196,19 +326,19 @@ export default function App() {
         try {
           const row = await insertJob({
             prompt: prompt.trim(), style: look, aspect: format,
-            duration_sec: parseInt(seconds, 10) || 5,
+            duration_sec: kind === "anime_image" ? 0 : duration,
             provider_request_id: data.request_id, status: data.estado || "queued",
           });
           jobDbId = row.id;
           setJobs(await listMyJobs(20));
         } catch (e) { console.error(e); }
       }
-      const rid = data.request_id || String(Date.now());
-      if (data.request_id || data.status_url) {
-        setNotice("Generando… 1–2 minutos.");
+      if (data.request_id) {
+        const rid = data.request_id;
+        setNotice(kind === "anime_image" ? "Dibujando… unos segundos." : "Generando… 1–2 minutos.");
         if (pollRef.current) window.clearInterval(pollRef.current);
-        pollRef.current = window.setInterval(() => void pollJob(rid, jobDbId, data.status_url), 4000);
-        void pollJob(rid, jobDbId, data.status_url);
+        pollRef.current = window.setInterval(() => void pollJob(jobKind, rid, jobDbId), kind === "anime_image" ? 2500 : 4000);
+        void pollJob(jobKind, rid, jobDbId);
       } else {
         setBusy(false);
         setNotice(data.estado === "error" ? "No se pudo procesar." : "Instrucción recibida.");
@@ -254,6 +384,18 @@ export default function App() {
     setSessionEmail(""); setProfile(null); setJobs([]); setScreen("Inicio");
   }
 
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const q = query.trim().toLowerCase();
+    if (!q) return;
+    const hit = NAV.find(([id, label]) => id.toLowerCase().includes(q) || label.toLowerCase().includes(q));
+    if (hit) { go(hit[0]); setQuery(""); }
+    else setNotice(`No hay ninguna sección que coincida con "${query.trim()}".`);
+  }
+
+  const editorFilter = `brightness(${adjust.brillo}%) contrast(${adjust.contraste}%) saturate(${adjust.saturacion}%) ${FILTERS[effect] || ""}`.trim();
+  const editorVideo = result?.video_url || files.find((f) => f.type.startsWith("video/"))?.url || "";
+
   const creditsLabel = profile ? (profile.is_creator ? "∞" : String(profile.credits)) : sessionEmail ? "…" : "—";
   const displayName = sessionEmail ? sessionEmail.split("@")[0] : "Invitado";
 
@@ -261,7 +403,7 @@ export default function App() {
     return (
       <div className="app center-screen">
         <form className="login" onSubmit={(e) => void handleAuth(e)}>
-          <div className="brand-row"><span className="logo-mark">S</span><strong>SOMBER AI STUDIO</strong></div>
+          <div className="brand-row"><span className="logo-mark">S</span><strong>Somber AI Studio</strong></div>
           <h1>{modeAuth === "login" ? "Iniciar sesión" : "Crear cuenta"}</h1>
           <label>Correo<input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required /></label>
           <label>Contraseña<input value={password} onChange={(e) => setPassword(e.target.value)} type="password" minLength={8} required /></label>
@@ -280,12 +422,13 @@ export default function App() {
       <aside className="side">
         <button className="brand" onClick={() => setScreen("Inicio")}>
           <span className="logo-mark">S</span>
-          <strong>SOMBER AI<small>STUDIO</small></strong>
+          <strong>Somber<small>AI Studio</small></strong>
         </button>
         <nav>
           {NAV.map(([id, label]) => (
-            <button key={id} className={screen === id || (id === "Planes" && screen === "Pago") ? "on" : ""} onClick={() => setScreen(id)}>
-              {label}
+            <button key={id} className={screen === id || (id === "Planes" && screen === "Pago") ? "on" : ""} onClick={() => go(id)}>
+              {(() => { const I = ICONS[id]; return I ? <I size={17} strokeWidth={1.8} aria-hidden /> : null; })()}
+              <span>{label}</span>
             </button>
           ))}
         </nav>
@@ -293,19 +436,23 @@ export default function App() {
           <div className="avatar">{displayName.slice(0, 1).toUpperCase()}</div>
           <div>
             <strong>{displayName}</strong>
-            <small>{profile?.plan || planActivo} · {creditsLabel} créd.</small>
+            <small>Plan {profile?.plan || planActivo}, {creditsLabel} créditos</small>
           </div>
         </div>
         <button className="btn side-cta" onClick={() => setScreen(sessionEmail ? "Planes" : "Entrar")}>
-          {sessionEmail ? "Actualizar Plan" : "Entrar"}
+          {sessionEmail ? "Mejorar plan" : "Entrar"}
         </button>
       </aside>
 
       <div className="main">
         <header className="top">
-          <input className="search" placeholder="Buscar herramientas…" />
+          <form className="search" onSubmit={handleSearch} role="search">
+            <Search size={16} aria-hidden />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar herramientas" aria-label="Buscar herramientas" />
+          </form>
           <div className="top-right">
-            <span className="pill">{apiOk ? "API lista" : "API…"} · Supabase · {creditsLabel}</span>
+            <span className={apiOk ? "pill live" : "pill"}>{apiOk === null ? "Conectando" : apiOk ? "Servidor activo" : "Servidor dormido"}</span>
+            <span className="pill">{creditsLabel} créditos</span>
             <button className="ghost" onClick={() => setScreen(sessionEmail ? "Cuenta" : "Entrar")}>
               {sessionEmail ? displayName : "Entrar"}
             </button>
@@ -316,23 +463,28 @@ export default function App() {
           {screen === "Inicio" ? (
             <div className="home">
               <div className="hero">
+                <img className="hero-img" src={COVERS[3]} alt="" />
                 <div className="hero-copy">
-                  <h1>SOMBER AI STUDIO</h1>
-                  <p>Crea, edita y da vida a tus ideas con el poder de la IA</p>
-                  <button className="btn lg" onClick={() => setScreen("Crear video")}>Crear Proyecto →</button>
-                </div>
-                <div className="hero-art">
-                  <img src={COVERS[3]} alt="" />
+                  <h1>Lo que imaginas, en movimiento.</h1>
+                  <p>Escribe una idea y Somber la convierte en video, anime o imagen. Si no sabes por dónde empezar, el asistente te ayuda con el guion.</p>
+                  <div className="hero-actions">
+                    <button className="btn lg" onClick={() => setScreen("Crear video")}>Crear un video</button>
+                    <button className="btn-quiet lg" onClick={() => setScreen("Asistente")}>Hablar con el asistente</button>
+                  </div>
                 </div>
               </div>
-              <h2>Herramientas Destacadas</h2>
+              <h2>Herramientas</h2>
               <div className="tools">
-                {TOOLS.map(([title, target, icon]) => (
-                  <button key={title} className="tool-card" onClick={() => setScreen(target as Screen)}>
-                    <span className="tool-ico">{icon}</span>
-                    <strong>{title}</strong>
-                  </button>
-                ))}
+                {TOOLS.map(([title, target, desc]) => {
+                  const I = ICONS[target];
+                  return (
+                    <button key={title} className="tool-card" onClick={() => go(target as Screen)}>
+                      <span className="tool-ico">{I ? <I size={20} strokeWidth={1.7} aria-hidden /> : null}</span>
+                      <strong>{title}</strong>
+                      <small>{desc}</small>
+                    </button>
+                  );
+                })}
               </div>
               {jobs.length > 0 ? (
                 <>
@@ -340,7 +492,7 @@ export default function App() {
                   <div className="grid4">
                     {jobs.slice(0, 4).map((j) => (
                       <article key={j.id} className="card">
-                        {j.video_url ? <video src={j.video_url} muted /> : <div className="thumb" />}
+                        {isImageUrl(j.video_url) ? <img src={j.video_url!} alt="" /> : j.video_url ? <video src={j.video_url} muted /> : <div className="thumb" />}
                         <div><strong>{j.prompt.slice(0, 40)}</strong><small>{j.status}</small></div>
                       </article>
                     ))}
@@ -353,10 +505,23 @@ export default function App() {
           {screen === "Crear video" || screen === "Anime" ? (
             <div className="create-layout">
               <div className="create-form card">
-                <h1>{screen === "Anime" ? "Anime Studio" : "Crear Video con IA"}</h1>
-                <p className="muted">{screen === "Anime" ? "Crea personajes, escenas y animaciones" : "Describe tu idea y deja que la IA la haga realidad"}</p>
-                <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ejemplo: Un astronauta en la luna, estilo cinematográfico…" maxLength={2000} />
-                <div className="char-count">{prompt.length}/2000</div>
+                <h1>{screen === "Anime" ? "Anime Studio" : "Crear video"}</h1>
+                <p className="muted">{screen === "Anime" ? "Crea personajes, escenas y animaciones originales." : "Describe la escena: quién aparece, qué pasa y cómo se ve."}</p>
+                {screen === "Anime" ? (
+                  <div className="chips out-toggle">{(["Video", "Imagen"] as const).map((o) => (
+                    <button key={o} type="button" className={animeOut === o ? "on" : ""} onClick={() => setAnimeOut(o)}>
+                      {o === "Video" ? "Animación" : "Imagen o personaje"}
+                    </button>
+                  ))}</div>
+                ) : null}
+                <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={screen === "Anime" ? "Ejemplo: Una chica samurái de pelo plateado bajo la lluvia de neón…" : "Ejemplo: Un astronauta en la luna, estilo cinematográfico…"} maxLength={2000} />
+                <div className="prompt-tools">
+                  <button type="button" className="ghost sm" disabled={enhancing || busy} onClick={() => void handleEnhance(screen === "Anime" ? (animeOut === "Imagen" ? "image" : "anime") : "video")}>
+                    {enhancing ? "Mejorando…" : <><Sparkles size={14} aria-hidden /> Mejorar con IA</>}
+                  </button>
+                  <button type="button" className="ghost sm" onClick={() => setScreen("Asistente")}><MessageSquare size={14} aria-hidden /> Pedir ideas</button>
+                  <span className="char-count">{prompt.length}/2000</span>
+                </div>
                 <p className="label">Estilo</p>
                 <div className="styles">
                   {(screen === "Anime" ? ANIME_STYLES : STYLES).map(([name, file]) => (
@@ -367,12 +532,14 @@ export default function App() {
                   ))}
                 </div>
                 <div className="row3">
+                  {screen === "Anime" && animeOut === "Imagen" ? null : (
                   <div>
                     <p className="label">Duración</p>
                     <div className="chips">{["5s", "10s"].map((s) => (
                       <button key={s} type="button" className={seconds === s ? "on" : ""} onClick={() => setSeconds(s)}>{s}</button>
                     ))}</div>
                   </div>
+                  )}
                   <div>
                     <p className="label">Formato</p>
                     <div className="chips">{["9:16", "16:9", "1:1"].map((f) => (
@@ -380,17 +547,22 @@ export default function App() {
                     ))}</div>
                   </div>
                 </div>
-                <button className="btn wide lg" disabled={busy} onClick={() => void handleCreate(screen === "Anime" ? "anime" : "video")}>
-                  {busy ? "Generando…" : screen === "Anime" ? "Generar Anime →" : "Generar Video →"}
+                <button className="btn wide lg" disabled={busy} onClick={() => void handleCreate(screen === "Anime" ? (animeOut === "Imagen" ? "anime_image" : "anime") : "video")}>
+                  {busy ? "Generando…" : screen === "Anime" ? (animeOut === "Imagen" ? "Generar imagen" : "Generar animación") : "Generar video"}
                 </button>
                 {notice ? <p className="notice">{notice}</p> : null}
               </div>
               <div className="preview-pane card">
-                <p className="label">Vista Previa</p>
-                {result?.video_url ? (
+                <p className="label">Vista previa</p>
+                {result?.image_url ? (
+                  <>
+                    <img className="preview" src={result.image_url} alt="Resultado" />
+                    <button className="btn wide" style={{ marginTop: 10 }} onClick={() => { setI2vImage(result.image_url!); setScreen("Imagen a Video"); }}>Animar esta imagen</button>
+                  </>
+                ) : result?.video_url ? (
                   <video className="preview" controls src={result.video_url} />
                 ) : (
-                  <div className="preview empty">Tu video aparecerá aquí</div>
+                  <div className={busy ? "preview empty working" : "preview empty"}>{busy ? "Generando, no cierres esta pantalla" : "El resultado aparecerá aquí"}</div>
                 )}
               </div>
             </div>
@@ -398,17 +570,26 @@ export default function App() {
 
           {screen === "Imagen a Video" ? (
             <div className="create-layout">
-              <div className="card">
-                <h1>Imagen a Video</h1>
-                <p className="muted">Convierte tus imágenes en videos increíbles</p>
+              <div className="card create-form">
+                <h1>Imagen a video</h1>
+                <p className="muted">Sube una foto o ilustración y describe cómo debe moverse.</p>
                 <label className="dropzone">
-                  <span>☁ Arrastra tu imagen aquí o selecciona un archivo</span>
+                  <Upload size={22} aria-hidden />
+                  <span>{i2vImage ? "Imagen lista. Toca para cambiarla" : "Elige una imagen de tu dispositivo"}</span>
                   <small>JPG, PNG, WEBP</small>
                   <input hidden type="file" accept="image/*" onChange={(e) => {
                     const f = e.target.files?.[0]; e.target.value = "";
-                    if (f) saveDeviceFile(f);
+                    if (f) void handleI2vFile(f);
                   }} />
                 </label>
+                <p className="label">¿Qué debe pasar en el video?</p>
+                <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ejemplo: el personaje gira la cabeza y sonríe, el viento mueve su pelo…" maxLength={2000} />
+                <div className="prompt-tools">
+                  <button type="button" className="ghost sm" disabled={enhancing || busy} onClick={() => void handleEnhance(look === "Anime" ? "anime" : "video")}>
+                    {enhancing ? "Mejorando…" : <><Sparkles size={14} aria-hidden /> Mejorar con IA</>}
+                  </button>
+                  <span className="char-count">{prompt.length}/2000</span>
+                </div>
                 <div className="row3">
                   <div>
                     <p className="label">Duración</p>
@@ -423,12 +604,15 @@ export default function App() {
                     ))}</div>
                   </div>
                 </div>
-                <button className="btn wide lg" onClick={() => setScreen("Crear video")}>Crear Video →</button>
+                <button className="btn wide lg" disabled={busy} onClick={() => void handleCreate("i2v")}>{busy ? "Generando…" : "Animar imagen"}</button>
+                {notice ? <p className="notice">{notice}</p> : null}
               </div>
               <div className="preview-pane card">
-                <p className="label">Imagen seleccionada</p>
-                {files.find((f)=>f.type.startsWith("image/")) ? (
-                  <img className="preview" src={files.find((f)=>f.type.startsWith("image/"))!.url} alt="" />
+                <p className="label">{result?.video_url ? "Resultado" : "Imagen seleccionada"}</p>
+                {result?.video_url ? (
+                  <video className="preview" controls src={result.video_url} />
+                ) : i2vImage ? (
+                  <img className="preview" src={i2vImage} alt="" />
                 ) : (
                   <div className="preview empty">Sin imagen</div>
                 )}
@@ -436,48 +620,97 @@ export default function App() {
             </div>
           ) : null}
 
+          {screen === "Asistente" ? (
+            <div className="card chat-card">
+              <div className="row-between">
+                <div>
+                  <h1>Asistente IA</h1>
+                  <p className="muted">Guiones, personajes, estilos y prompts listos para generar.</p>
+                </div>
+                <button className="ghost sm" onClick={() => setChat((c) => c.slice(0, 1))}><RotateCcw size={14} aria-hidden /> Nueva conversación</button>
+              </div>
+              <div className="chat-log" aria-live="polite">
+                {chat.map((m, i) => {
+                  const p = m.role === "assistant" ? extractPrompt(m.content) : "";
+                  return (
+                    <div key={i} className={`bubble ${m.role}`}>
+                      <p>{m.content}</p>
+                      {p ? (
+                        <div className="chips">
+                          <button type="button" onClick={() => applyPrompt(p, "Crear video")}>Usar en video</button>
+                          <button type="button" onClick={() => { setAnimeOut("Video"); applyPrompt(p, "Anime"); }}>Usar en anime</button>
+                          <button type="button" onClick={() => { setAnimeOut("Imagen"); applyPrompt(p, "Anime"); }}>Usar en imagen</button>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+                {chatBusy ? <div className="bubble assistant"><p>Escribiendo…</p></div> : null}
+                <div ref={chatEndRef} />
+              </div>
+              {chat.length <= 1 ? (
+                <div className="chips">
+                  {["Crea un personaje de anime original", "Escribe un guion de 10 segundos para TikTok", "Dame 3 ideas de video cyberpunk"].map((q) => (
+                    <button key={q} type="button" onClick={() => void sendChat(q)}>{q}</button>
+                  ))}
+                </div>
+              ) : null}
+              <form className="chat-input" onSubmit={(e) => { e.preventDefault(); void sendChat(); }}>
+                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Escribe tu mensaje" aria-label="Mensaje" maxLength={4000} />
+                <button className="btn icon" disabled={chatBusy || !chatInput.trim()} aria-label="Enviar"><Send size={18} aria-hidden /></button>
+              </form>
+            </div>
+          ) : null}
+
           {screen === "Editor" ? (
             <div className="editor">
               <div className="editor-top">
-                <strong>Editor Profesional</strong>
+                <div>
+                  <h1>Editor</h1>
+                  <p className="muted">Ajusta el color de tu video y descárgalo.</p>
+                </div>
                 <div className="editor-actions">
-                  <button className="ghost">Guardar</button>
-                  <button className="btn">Exportar</button>
+                  <button className="ghost sm" onClick={() => { setAdjust({ brillo: 100, contraste: 100, saturacion: 100 }); setEffect(""); }}><RotateCcw size={14} aria-hidden /> Restablecer</button>
+                  {editorVideo ? (
+                    <a className="btn" href={editorVideo} download="somber-video.mp4" target="_blank" rel="noreferrer"><Download size={16} aria-hidden /> Descargar video</a>
+                  ) : (
+                    <button className="btn" disabled><Download size={16} aria-hidden /> Descargar video</button>
+                  )}
                 </div>
               </div>
               <div className="editor-body">
                 <div className="editor-lib">
-                  <p className="label">Archivos</p>
-                  <label className="btn tiny">Importar
-                    <input hidden type="file" accept="video/*,image/*,audio/*" onChange={(e)=>{const f=e.target.files?.[0];e.target.value="";if(f)saveDeviceFile(f);}} />
-                  </label>
+                  <div className="row-between">
+                    <p className="label">Archivos</p>
+                    <label className="btn tiny">Importar
+                      <input hidden type="file" accept="video/*,image/*,audio/*" onChange={(e)=>{const f=e.target.files?.[0];e.target.value="";if(f)saveDeviceFile(f);}} />
+                    </label>
+                  </div>
                   <div className="lib-list">
                     {files.map((f)=>(
-                      <button key={f.id} type="button" className="lib-item">{f.name}</button>
+                      <button key={f.id} type="button" className="lib-item" onClick={() => { if (f.type.startsWith("video/")) setApiResult({ video_url: f.url }); }}>{f.name}</button>
                     ))}
-                    {files.length===0 ? <p className="muted">Sin archivos</p> : null}
+                    {files.length===0 ? <p className="muted small">Importa un video o genera uno para editarlo.</p> : null}
                   </div>
                 </div>
                 <div className="editor-stage">
-                  {files.find((f)=>f.type.startsWith("video/")) || result?.video_url ? (
-                    <video className="preview" controls src={result?.video_url || files.find((f)=>f.type.startsWith("video/"))?.url} />
+                  {editorVideo ? (
+                    <video className="preview" controls src={editorVideo} style={{ filter: editorFilter }} />
                   ) : (
-                    <div className="preview empty">Vista previa</div>
+                    <div className="preview empty">Aún no hay video. Genera uno o impórtalo.</div>
                   )}
-                  <div className="timeline">
-                    <div className="track"><span>V1</span><i className="clip v" /></div>
-                    <div className="track"><span>A1</span><i className="clip a" /></div>
-                    <div className="track"><span>T1</span><i className="clip t" /></div>
-                  </div>
+                  <p className="muted small">Los ajustes se ven en la vista previa. La descarga guarda el video original; la exportación con ajustes llegará pronto.</p>
                 </div>
                 <div className="editor-props">
                   <p className="label">Ajustes</p>
-                  <label>Brillo<input type="range" defaultValue={50} /></label>
-                  <label>Contraste<input type="range" defaultValue={50} /></label>
-                  <label>Saturación<input type="range" defaultValue={50} /></label>
+                  {([["brillo","Brillo"],["contraste","Contraste"],["saturacion","Saturación"]] as const).map(([k, l]) => (
+                    <label key={k}>{l} <span>{adjust[k]}%</span>
+                      <input type="range" min={0} max={200} value={adjust[k]} onChange={(e) => setAdjust((a) => ({ ...a, [k]: Number(e.target.value) }))} />
+                    </label>
+                  ))}
                   <p className="label">Efectos</p>
-                  <div className="chips">{["Glow","Glitch","Blur","Neon"].map((x)=>(
-                      <button key={x} type="button">{x}</button>
+                  <div className="chips">{Object.keys(FILTERS).map((x)=>(
+                      <button key={x} type="button" className={effect===x?"on":""} onClick={() => setEffect((c) => (c === x ? "" : x))}>{x}</button>
                     ))}</div>
                 </div>
               </div>
@@ -486,13 +719,13 @@ export default function App() {
 
           {screen === "Voces" ? (
             <div className="card narrow-card">
-              <h1>Voces y Música</h1>
-              <p className="muted">Dale voz a tus videos con IA</p>
+              <h1>Voces y música</h1>
+              <p className="muted">Narración y música para tus videos. Esta función está en preparación.</p>
               <p className="label">Voces IA</p>
               <div className="voice-grid">
                 {["Masculina","Femenina","Clonada","Robot"].map((v)=>(
                   <button key={v} type="button" className={voice===v?"voice on":"voice"} onClick={()=>setVoice(v)}>
-                    <span>🎙</span>{v}
+                    <Music size={18} aria-hidden />{v}
                   </button>
                 ))}
               </div>
@@ -500,15 +733,15 @@ export default function App() {
               <div className="chips">{["Épica","Chill","Cyber","Ambient"].map((m)=>(
                   <button key={m} type="button">{m}</button>
                 ))}</div>
-              <button className="btn wide">Aplicar Voz →</button>
+              <button className="btn wide" disabled>Disponible pronto</button>
             </div>
           ) : null}
 
           {screen === "Proyectos" ? (
             <>
               <div className="row-between">
-                <h1>Mis Proyectos</h1>
-                <button className="btn" onClick={() => setScreen("Crear video")}>+ Nuevo Proyecto</button>
+                <h1>Mis proyectos</h1>
+                <button className="btn" onClick={() => setScreen("Crear video")}>Nuevo proyecto</button>
               </div>
               <div className="grid4">
                 {(jobs.length ? jobs.map((j)=>({id:j.id,title:j.prompt.slice(0,32),sub:j.status,src:j.video_url||""})) : [
@@ -518,7 +751,7 @@ export default function App() {
                   {id:"4",title:"Trailer IA",sub:"Plantilla",src:COVERS[2]},
                 ]).map((p)=>(
                   <article key={p.id} className="card project">
-                    {p.src && p.src.endsWith(".jpg") ? <img src={p.src} alt="" /> : p.src ? <video src={p.src} muted /> : <div className="thumb" />}
+                    {isImageUrl(p.src) ? <img src={p.src} alt="" /> : p.src ? <video src={p.src} muted /> : <div className="thumb" />}
                     <div><strong>{p.title}</strong><small>{p.sub}</small></div>
                   </article>
                 ))}
@@ -529,13 +762,13 @@ export default function App() {
           {screen === "Nube" ? (
             <div className="card center-card">
               <h1>Nube</h1>
-              <p className="muted">Guarda tus proyectos y accede desde cualquier lugar</p>
-              <div className="cloud-ico">☁</div>
+              <p className="muted">Guarda archivos para usarlos en el editor y en Imagen a video.</p>
+              <div className="cloud-ico"><Cloud size={48} strokeWidth={1.4} aria-hidden /></div>
               <label className="btn lg">
-                Subir a la Nube
+                <Upload size={16} aria-hidden /> Subir archivo
                 <input hidden type="file" accept="video/*,image/*,audio/*" onChange={(e)=>{const f=e.target.files?.[0];e.target.value="";if(f)saveDeviceFile(f);}} />
               </label>
-              <p className="muted">Por ahora se guarda en este dispositivo. Supabase Storage próximamente.</p>
+              <p className="muted small">Por ahora los archivos se guardan solo en este dispositivo.</p>
               <div className="grid4" style={{marginTop:16}}>
                 {files.map((f)=>(
                   <article key={f.id} className="card"><strong>{f.name}</strong><small>{f.type}</small></article>
@@ -546,8 +779,8 @@ export default function App() {
 
           {screen === "Planes" || screen === "Pago" ? (
             <>
-              <h1>Planes y Créditos</h1>
-              <p className="muted">Elige tu plan y sigue creando sin límites</p>
+              <h1>Planes y créditos</h1>
+              <p className="muted">Cada generación usa 1 crédito. Los pagos se activarán al terminar la beta.</p>
               <div className="plans">
                 {[
                   ["Basico","$4.99","100 créditos","Acceso básico","Soporte por email"],
@@ -555,18 +788,18 @@ export default function App() {
                   ["Ultra","$19.99","1,000 créditos","Funciones premium","Soporte 24/7"],
                 ].map(([name, price, a, b, c]) => (
                   <article key={name} className={name === "Pro" ? "card plan pop" : "card plan"}>
-                    {name === "Pro" ? <span className="badge">Más Popular</span> : null}
+                    {name === "Pro" ? <span className="badge">Más elegido</span> : null}
                     <h2>{name}</h2>
                     <p className="price">{price}<small>/mes</small></p>
                     <ul>
                       <li>{a}</li><li>{b}</li><li>{c}</li>
                     </ul>
-                    <button className="btn wide" onClick={() => {
+                    <button className={name === planActivo ? "btn-quiet wide" : "btn wide"} onClick={() => {
                       setPlanElegido(name);
                       localStorage.setItem("somber-plan-activa", name);
                       setPlanActivo(name);
-                      setNotice(`Plan ${name} marcado (Stripe pendiente).`);
-                    }}>Seleccionar</button>
+                      setNotice(`Elegiste el plan ${name}. Te avisaremos cuando se puedan hacer pagos.`);
+                    }}>{name === planActivo ? "Plan actual" : `Elegir ${name}`}</button>
                   </article>
                 ))}
               </div>
@@ -576,7 +809,7 @@ export default function App() {
 
           {screen === "Cuenta" ? (
             <div className="card narrow-card">
-              <h1>Mi Cuenta</h1>
+              <h1>Mi cuenta</h1>
               <div className="profile-row">
                 <div className="avatar lg">{displayName.slice(0,1).toUpperCase()}</div>
                 <div>
@@ -606,7 +839,8 @@ export default function App() {
           {screen === "Soporte" ? (
             <div className="card narrow-card">
               <h1>Soporte</h1>
-              <p className="muted">Escribe a payple9105@gmail.com</p>
+              <p className="muted">¿Algo no funciona o tienes una idea? Escríbenos y te respondemos.</p>
+              <p><a className="link" href="mailto:payple9105@gmail.com">payple9105@gmail.com</a></p>
               <button className="btn" onClick={() => setScreen("Inicio")}>Volver</button>
             </div>
           ) : null}
@@ -614,7 +848,7 @@ export default function App() {
           {screen === "Términos" || screen === "Privacidad" ? (
             <div className="card narrow-card">
               <h1>{screen === "Términos" ? "Términos de uso" : "Privacidad"}</h1>
-              <p className="muted">Beta pública · Noviembre 2026</p>
+              <p className="muted">Beta pública, noviembre de 2026</p>
               <p>{screen === "Términos" ? "SOMBER AI STUDIO es un servicio en fase beta." : "Guardamos correo, plan y créditos en Supabase."}</p>
               <button className="btn" onClick={() => setScreen("Inicio")}>Volver</button>
             </div>
@@ -623,8 +857,11 @@ export default function App() {
       </div>
 
       <nav className="mobile">
-        {([["Inicio","Inicio"],["Crear video","Crear"],["Anime","Anime"],["Proyectos","Proyectos"],["Cuenta","Cuenta"]] as const).map(([id,label])=>(
-          <button key={id} className={screen===id?"on":""} onClick={()=>setScreen(id)}>{label}</button>
+        {([["Inicio","Inicio"],["Asistente","IA"],["Crear video","Crear"],["Anime","Anime"],["Proyectos","Proyectos"],["Cuenta","Cuenta"]] as const).map(([id,label])=>(
+          <button key={id} className={screen===id?"on":""} onClick={()=>go(id)}>
+            {(() => { const I = ICONS[id]; return I ? <I size={20} strokeWidth={1.8} aria-hidden /> : null; })()}
+            <span>{label}</span>
+          </button>
         ))}
       </nav>
     </div>

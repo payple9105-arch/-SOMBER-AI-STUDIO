@@ -114,9 +114,9 @@ def _mode(folded: str) -> str:
 
     # Animar una imagen que ya existe.
     if re.search(
-        r"\b(imagen a video|animar una imagen|"
-        r"anima esta imagen|fotografia a video|"
-        r"ilustracion a video)\b",
+        r"\b(imagen a video|fotografia a video|foto a video|ilustracion a video|"
+        r"anim(a|ar|ame)\s+(esta|este|una|un|la|el|mi)\s+"
+        r"(imagen|foto|fotografia|ilustracion|dibujo|retrato))\b",
         folded,
     ):
         return "imagen_a_video"
