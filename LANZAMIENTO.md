@@ -18,15 +18,19 @@ Actualizado: 2026-11-01
 
 ### 1. API
 - [x] FAL_KEY configurada (health OK)
+- [x] Créditos comprobados en el servidor (`server_claim_job` en Supabase)
+- [x] Director IA (`POST /enhance`, Claude) + botón «✨ Mejorar con IA»
+- [ ] Render: añadir `SUPABASE_SERVICE_ROLE_KEY` y `ANTHROPIC_API_KEY`
 - [ ] Plan Render sin sleep / keep-alive
 - [ ] Generación extremo a extremo verificada
 
 ### 2. Auth y datos (Supabase)
-- [ ] Ejecutar `supabase/001_schema.sql`
-- [ ] Secretos GitHub: `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`
+- [x] Esquema endurecido: créditos solo vía `charge_job` / `refund_job`
+- [x] Proyecto `somber-ai-studio` (París) creado y `supabase/001_schema.sql` aplicado
+- [x] URL y clave publicable integradas en `src/lib/supabase.ts` (no hacen falta secretos)
 - [ ] Site URL / Redirect en Auth
 - [ ] Probar registro + créditos
-- [ ] Marcar cuenta creadora si ya existía el usuario
+- [ ] Marcar cuenta creadora a mano (SQL en `SUPABASE.md`)
 
 ### 3. Archivos en la nube
 - [ ] Bucket Storage

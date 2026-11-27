@@ -1,7 +1,13 @@
 import { createClient, type Session, type User } from "@supabase/supabase-js";
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+// Proyecto Supabase "somber-ai-studio". Ambos valores son públicos por diseño
+// (van en el JS de la web); la seguridad está en RLS (supabase/001_schema.sql).
+// Se pueden sobrescribir con VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY.
+const DEFAULT_URL = "https://gdamdrgrtcncuwzmqiub.supabase.co";
+const DEFAULT_KEY = "sb_publishable_NbS7gpKngLZ2JsHWUIHZQw_PXoeV1zA";
+
+const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || DEFAULT_URL;
+const anon = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || DEFAULT_KEY;
 
 export const supabaseConfigured = Boolean(url && anon && !url.includes("TU_PROYECTO"));
 
@@ -35,6 +41,13 @@ export type JobRow = {
   created_at: string;
 };
 
+/** Token de sesión para llamar a la API de SOMBER (que lo valida en Supabase). */
+export async function getAccessToken(): Promise<string | null> {
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}
+
 export async function fetchProfile(userId: string): Promise<Profile | null> {
   if (!supabase) return null;
   const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
@@ -42,23 +55,24 @@ export async function fetchProfile(userId: string): Promise<Profile | null> {
   return data as Profile | null;
 }
 
-export async function spendCredits(amount: number, reason = "generate") {
+/** Cobra un trabajo propio (una sola vez). Los creadores no pagan. */
+export async function chargeJob(jobId: string, amount: number, reason = "generate") {
   if (!supabase) throw new Error("Supabase no configurado");
-  const { data, error } = await supabase.rpc("spend_credits", {
+  const { data, error } = await supabase.rpc("charge_job", {
+    p_job_id: jobId,
     p_amount: amount,
     p_reason: reason,
-    p_meta: {},
   });
   if (error) throw error;
   return data as Profile;
 }
 
-export async function refundCredits(amount: number, reason = "refund") {
+/** Marca el trabajo como fallido y devuelve lo cobrado (una sola vez). */
+export async function refundJob(jobId: string, errorMessage?: string) {
   if (!supabase) throw new Error("Supabase no configurado");
-  const { data, error } = await supabase.rpc("refund_credits", {
-    p_amount: amount,
-    p_reason: reason,
-    p_meta: {},
+  const { data, error } = await supabase.rpc("refund_job", {
+    p_job_id: jobId,
+    p_error: errorMessage ?? null,
   });
   if (error) throw error;
   return data as Profile;
@@ -69,7 +83,6 @@ export async function insertJob(input: {
   style?: string;
   aspect?: string;
   duration_sec?: number;
-  provider_request_id?: string;
   status?: string;
 }) {
   if (!supabase) throw new Error("Supabase no configurado");
@@ -83,7 +96,6 @@ export async function insertJob(input: {
       style: input.style ?? null,
       aspect: input.aspect ?? "9:16",
       duration_sec: input.duration_sec ?? 5,
-      provider_request_id: input.provider_request_id ?? null,
       status: input.status ?? "queued",
     })
     .select("*")
@@ -94,7 +106,7 @@ export async function insertJob(input: {
 
 export async function updateJob(
   id: string,
-  patch: Partial<{ status: string; video_url: string | null; error_message: string | null; provider_request_id: string }>
+  patch: Partial<{ status: string; video_url: string | null; error_message: string | null }>
 ) {
   if (!supabase) throw new Error("Supabase no configurado");
   const { data, error } = await supabase

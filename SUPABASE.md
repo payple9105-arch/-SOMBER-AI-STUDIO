@@ -2,7 +2,8 @@
 
 ## 1. Proyecto
 
-1. Entra en [supabase.com](https://supabase.com) y abre tu proyecto **sombra IA estudio** (o crea uno nuevo).
+1. Proyecto: **somber-ai-studio** (`gdamdrgrtcncuwzmqiub`, región París). Ya tiene el esquema aplicado y
+   la web ya apunta a él (`src/lib/supabase.ts`). Los pasos 2 y 4 solo hacen falta para otro proyecto.
 2. Ve a **Project Settings → API**.
 3. Copia:
    - **Project URL** → `VITE_SUPABASE_URL`
@@ -19,15 +20,22 @@
 Eso crea:
 
 - `profiles` (plan, créditos, flag creador)
-- `credit_ledger`
-- `jobs`
-- trigger al registrarse
-- `spend_credits` / `refund_credits`
-- RLS (cada usuario solo ve lo suyo)
+- `credit_ledger` (historial de créditos)
+- `jobs` (trabajos de generación)
+- trigger al registrarse (20 créditos de bienvenida)
+- `charge_job` / `refund_job`: cobran y devuelven créditos **por trabajo**
+- RLS y permisos: cada usuario solo ve lo suyo y **no puede** cambiar sus
+  créditos, su plan ni `is_creator` desde el navegador
 
-La cuenta `payple9105@gmail.com` se marca como **creadora** con créditos altos al registrarse.
+El script se puede ejecutar más de una vez. Si ya habías ejecutado una versión
+anterior, vuelve a ejecutarlo: elimina `spend_credits` / `refund_credits`
+(permitían darse créditos infinitos) y corrige los permisos.
 
-Si ya existía el usuario antes del trigger:
+### Cuenta creadora
+
+Por seguridad **ya no se marca automáticamente** al registrarse (cualquiera
+podría registrarse con ese correo antes que tú). Después de registrarte y
+confirmar tu correo, ejecuta en **SQL Editor**:
 
 ```sql
 update public.profiles
@@ -40,7 +48,7 @@ where lower(email) = 'payple9105@gmail.com';
 En **Authentication → Providers**:
 
 - Email: activado
-- Confirm email: puedes desactivarlo en desarrollo
+- Confirm email: **déjalo activado** en producción
 
 En **Authentication → URL configuration**:
 
@@ -74,6 +82,20 @@ VITE_SUPABASE_ANON_KEY=eyJ...
 3. Registrarse / entrar
 4. Ver créditos en Panel / Cuenta
 5. Generar un vídeo (gasta 1 crédito si no eres creador)
+6. Si la generación falla, el crédito se devuelve solo (una vez por trabajo)
+
+## 6. Servidor (Render)
+
+La API comprueba los créditos en Supabase antes de generar. En Render →
+servicio de la API → **Environment**, añade:
+
+| Variable | Valor |
+|----------|-------|
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API Keys → clave **secret** (o `service_role`). Solo en Render, nunca en GitHub ni en la web. |
+| `ANTHROPIC_API_KEY` | Clave de console.anthropic.com para el Director IA. |
+
+Sin `SUPABASE_SERVICE_ROLE_KEY`, `/generate` responde 503. Sin `ANTHROPIC_API_KEY`,
+`/enhance` responde 503. `GET /health` indica qué está configurado.
 
 ## Coste de generación
 

@@ -62,6 +62,14 @@ FAL_MODEL = MODELS["video"]  # compatibilidad
 HTTP_TIMEOUT = 60.0
 MAX_IMAGE_DATA = 10 * 1024 * 1024  # ~10 MB en base64
 
+# --- Supabase: créditos comprobados en el servidor --------------------------
+# URL y clave publicable son públicas (las usa también la web).
+# SUPABASE_SERVICE_ROLE_KEY es SECRETA: solo como variable de entorno en Render.
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://gdamdrgrtcncuwzmqiub.supabase.co").rstrip("/")
+SUPABASE_PUBLIC_KEY = os.getenv("SUPABASE_ANON_KEY", "sb_publishable_NbS7gpKngLZ2JsHWUIHZQw_PXoeV1zA")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+UUID_PATTERN = r"^[0-9a-fA-F-]{36}$"
+
 RATE_LIMIT = int(os.getenv("RATE_LIMIT_PER_HOUR", "20"))
 CHAT_RATE_LIMIT = int(os.getenv("CHAT_RATE_LIMIT_PER_HOUR", "60"))
 _hits: dict[str, deque[float]] = defaultdict(deque)
@@ -183,6 +191,112 @@ async def _fal_status(kind: JobKind, request_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=502, detail="No se pudo conectar con fal.ai.")
 
 
+async def _current_user(http_request: Request) -> str:
+    """Valida el token de sesión de Supabase y devuelve el id del usuario."""
+    auth = http_request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Inicia sesión para generar.")
+    token = auth[7:].strip()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f"{SUPABASE_URL}/auth/v1/user",
+                headers={"apikey": SUPABASE_PUBLIC_KEY, "Authorization": f"Bearer {token}"},
+            )
+    except httpx.HTTPError:
+        logger.exception("No se pudo validar la sesión en Supabase")
+        raise HTTPException(status_code=502, detail="No se pudo validar tu sesión. Inténtalo de nuevo.")
+    if r.status_code != 200:
+        raise HTTPException(status_code=401, detail="Tu sesión ha caducado. Vuelve a entrar.")
+    user_id = (r.json() or {}).get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sesión no válida.")
+    return str(user_id)
+
+
+def _service_headers() -> dict[str, str]:
+    key = SUPABASE_SERVICE_KEY or ""
+    headers = {"apikey": key, "Content-Type": "application/json"}
+    # Las claves nuevas (sb_secret_...) van solo en "apikey"; las antiguas son JWT.
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
+async def _rpc(name: str, args: dict[str, Any]) -> Any:
+    """Llama a una función de Supabase con la clave de servicio."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(f"{SUPABASE_URL}/rest/v1/rpc/{name}", headers=_service_headers(), json=args)
+    except httpx.HTTPError:
+        logger.exception("Error de conexión con Supabase (%s)", name)
+        raise HTTPException(status_code=502, detail="No se pudo comprobar tus créditos. Inténtalo de nuevo.")
+    if r.status_code >= 400:
+        logger.error("Supabase %s respondió %s: %s", name, r.status_code, r.text[:500])
+        raise HTTPException(status_code=502, detail="No se pudo comprobar tus créditos. Inténtalo de nuevo.")
+    return r.json() if r.content else None
+
+
+async def _safe_refund(user_id: str, job_id: str, request_id: str | None, error: str) -> bool:
+    try:
+        return bool(
+            await _rpc(
+                "server_refund_job",
+                {"p_user_id": user_id, "p_job_id": job_id, "p_request_id": request_id, "p_error": error[:500]},
+            )
+        )
+    except HTTPException:
+        logger.error("No se pudo devolver el crédito del trabajo %s", job_id)
+        return False
+
+
+async def _paid_submit(http_request: Request, job_id: str, kind: JobKind, payload: dict[str, Any]) -> dict[str, Any]:
+    """Comprueba sesión y pago en Supabase, envía a fal.ai y devuelve el crédito si falla."""
+    _require_fal()
+    if not SUPABASE_SERVICE_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="SUPABASE_SERVICE_ROLE_KEY no está configurada en Render: no se pueden comprobar créditos.",
+        )
+    user_id = await _current_user(http_request)
+    # El trabajo tiene que estar cobrado y no usado antes. Esto lo decide Supabase.
+    claimed = await _rpc("server_claim_job", {"p_user_id": user_id, "p_job_id": job_id})
+    if claimed is not True:
+        raise HTTPException(status_code=402, detail="Este trabajo no está pagado o ya se usó.")
+    try:
+        result = await _fal_submit(kind, payload)
+    except HTTPException as exc:
+        await _safe_refund(user_id, job_id, None, str(exc.detail))
+        raise
+    except Exception:
+        logger.exception("Error inesperado al iniciar la generación")
+        await _safe_refund(user_id, job_id, None, "error interno")
+        raise HTTPException(status_code=500, detail="Se produjo un error interno al generar.")
+    try:
+        await _rpc(
+            "server_set_request",
+            {"p_user_id": user_id, "p_job_id": job_id, "p_request_id": result["request_id"]},
+        )
+    except HTTPException:
+        logger.error("No se pudo guardar el request_id del trabajo %s", job_id)
+    return result
+
+
+async def _status_with_refund(
+    http_request: Request, kind: JobKind, request_id: str, job_id: str | None
+) -> dict[str, Any]:
+    """Estado en fal.ai. Si fal confirma el fallo, el servidor devuelve el crédito (una vez)."""
+    result = await _fal_status(kind, request_id)
+    if result.get("estado") in {"FAILED", "CANCELLED"} and job_id and SUPABASE_SERVICE_KEY:
+        try:
+            user_id = await _current_user(http_request)
+        except HTTPException:
+            result["reembolsado"] = False
+        else:
+            result["reembolsado"] = await _safe_refund(user_id, job_id, request_id, f"fal.ai: {result['estado']}")
+    return result
+
+
 async def _llm(system: str, messages: list[dict], max_tokens: int = 800) -> str:
     if not ANTHROPIC_API_KEY:
         raise HTTPException(
@@ -222,6 +336,7 @@ class GenerateRequest(BaseModel):
     duration_sec: int = Field(default=5, ge=5, le=15)
     style: str | None = Field(default=None, max_length=60)
     anime: bool = False
+    job_id: str = Field(..., pattern=UUID_PATTERN)
 
 
 class ImageToVideoRequest(GenerateRequest):
@@ -233,6 +348,7 @@ class ImageRequest(BaseModel):
     aspect: str = Field(default="9:16")
     style: str | None = Field(default=None, max_length=60)
     anime: bool = True
+    job_id: str = Field(..., pattern=UUID_PATTERN)
 
 
 class ChatMessage(BaseModel):
@@ -283,6 +399,7 @@ async def health():
         "version": VERSION,
         "fal_configurado": bool(FAL_KEY),
         "asistente_configurado": bool(ANTHROPIC_API_KEY),
+        "creditos_configurados": bool(SUPABASE_SERVICE_KEY),
         "rate_limit_por_hora": RATE_LIMIT,
     }
 
@@ -303,7 +420,7 @@ async def models():
 async def generate_video(request: GenerateRequest, http_request: Request):
     _check_rate_limit(_client_ip(http_request))
     _check_aspect(request.aspect)
-    return await _fal_submit("video", _video_payload(request))
+    return await _paid_submit(http_request, request.job_id, "video", _video_payload(request))
 
 
 @app.post("/image-to-video")
@@ -318,7 +435,7 @@ async def image_to_video(request: ImageToVideoRequest, http_request: Request):
     payload = _video_payload(request)
     payload.pop("aspect_ratio", None)  # el formato lo marca la propia imagen
     payload["image_url"] = image
-    return await _fal_submit("i2v", payload)
+    return await _paid_submit(http_request, request.job_id, "i2v", payload)
 
 
 @app.post("/image")
@@ -331,17 +448,17 @@ async def generate_image(request: ImageRequest, http_request: Request):
         "num_images": 1,
         "enable_safety_checker": True,
     }
-    return await _fal_submit("image", payload)
+    return await _paid_submit(http_request, request.job_id, "image", payload)
 
 
 @app.get("/jobs/{kind}/{request_id}")
-async def job_status(kind: JobKind, request_id: str):
-    return await _fal_status(kind, request_id)
+async def job_status(kind: JobKind, request_id: str, http_request: Request, job_id: str | None = None):
+    return await _status_with_refund(http_request, kind, request_id, job_id)
 
 
 @app.get("/generate/{request_id}")
-async def get_video_status(request_id: str):
-    return await _fal_status("video", request_id)
+async def get_video_status(request_id: str, http_request: Request, job_id: str | None = None):
+    return await _status_with_refund(http_request, "video", request_id, job_id)
 
 
 @app.post("/chat")

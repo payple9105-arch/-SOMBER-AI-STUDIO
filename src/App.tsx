@@ -5,7 +5,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
-  supabase, supabaseConfigured, fetchProfile, spendCredits, refundCredits,
+  supabase, supabaseConfigured, fetchProfile, chargeJob, refundJob, getAccessToken,
   insertJob, updateJob, listMyJobs, type Profile, type JobRow,
 } from "./lib/supabase";
 
@@ -201,9 +201,15 @@ export default function App() {
     };
   }
 
+  async function authHeaders(): Promise<Record<string, string>> {
+    const token = await getAccessToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
   async function pollJob(kind: JobKind, requestId: string, jobDbId?: string) {
     try {
-      const r = await fetch(`${API_URL}/jobs/${kind}/${encodeURIComponent(requestId)}`);
+      const qs = jobDbId ? `?job_id=${encodeURIComponent(jobDbId)}` : "";
+      const r = await fetch(`${API_URL}/jobs/${kind}/${encodeURIComponent(requestId)}${qs}`, { headers: await authHeaders() });
       if (!r.ok) return;
       const data = await r.json();
       const status = (data.estado || data.status || "").toLowerCase();
@@ -221,8 +227,8 @@ export default function App() {
         setApiResult((prev) => ({ ...(prev || {}), estado: "error", mensaje: data.detail || data.mensaje || "Falló" }));
         if (jobDbId && supabaseConfigured) {
           try {
-            await updateJob(jobDbId, { status: "error", error_message: String(data.detail || data.mensaje || "error") });
-            if (profile && !profile.is_creator) { const p = await refundCredits(CREDIT_COST, "refund_failed_job"); setProfile(p); }
+            // El servidor ya devolvió el crédito al confirmar el fallo; esto solo refresca.
+            setProfile(await refundJob(jobDbId, String(data.detail || data.mensaje || "error")));
             setJobs(await listMyJobs(20));
           } catch {}
         }
@@ -295,43 +301,40 @@ export default function App() {
     const reason = { video: "generate_video", anime: "generate_anime", anime_image: "generate_image", i2v: "generate_i2v" }[kind];
     let jobDbId: string | undefined;
     try {
+      // 1) Crear el trabajo y cobrarlo en Supabase. El servidor lo comprobará.
       if (supabaseConfigured && sessionEmail) {
         try {
-          const p = await spendCredits(CREDIT_COST, reason);
-          setProfile(p);
+          const row = await insertJob({
+            prompt: text, style: look, aspect: format,
+            duration_sec: kind === "anime_image" ? 0 : duration, status: "queued",
+          });
+          jobDbId = row.id;
+          setProfile(await chargeJob(row.id, CREDIT_COST, reason));
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
+          if (jobDbId) { try { await refundJob(jobDbId, msg); } catch {} }
           setBusy(false);
           setNotice(msg.includes("insuficientes") ? "No te quedan créditos." : msg);
           return;
         }
       }
+      // 2) Generar. Si la API falla, ella misma devuelve el crédito; refundJob solo refresca.
       const response = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+        body: JSON.stringify({ ...body, job_id: jobDbId }),
       });
       if (!response.ok) {
         const msg = await apiError(response);
-        if (supabaseConfigured && sessionEmail && profile && !profile.is_creator) {
-          try { setProfile(await refundCredits(CREDIT_COST, "refund_failed_job")); } catch {}
-        }
+        if (jobDbId) { try { setProfile(await refundJob(jobDbId, msg)); } catch {} }
         setNotice(response.status === 429 ? "Límite del servidor. Prueba más tarde." : msg);
         setBusy(false); return;
       }
       const data = (await response.json()) as ApiResult;
       setApiResult(data);
       markGenerateLocal();
-      if (supabaseConfigured && sessionEmail) {
-        try {
-          const row = await insertJob({
-            prompt: prompt.trim(), style: look, aspect: format,
-            duration_sec: kind === "anime_image" ? 0 : duration,
-            provider_request_id: data.request_id, status: data.estado || "queued",
-          });
-          jobDbId = row.id;
-          setJobs(await listMyJobs(20));
-        } catch (e) { console.error(e); }
+      if (jobDbId) {
+        try { setJobs(await listMyJobs(20)); } catch (e) { console.error(e); }
       }
       if (data.request_id) {
         const rid = data.request_id;
@@ -344,7 +347,9 @@ export default function App() {
         setNotice(data.estado === "error" ? "No se pudo procesar." : "Instrucción recibida.");
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "No pudimos conectar.");
+      const msg = error instanceof Error ? error.message : "No pudimos conectar.";
+      if (jobDbId) { try { setProfile(await refundJob(jobDbId, msg)); } catch {} }
+      setNotice(msg);
       setBusy(false);
     }
   }
