@@ -359,18 +359,31 @@ export default function App() {
     if (!email.includes("@") || password.length < 8) { setNotice("Correo y contraseña de al menos 8 caracteres."); return; }
     if (!supabase) { setSessionEmail(email); setNotice("Sesión local."); setScreen("Inicio"); return; }
     setBusy(true); setNotice("");
+    // Si Supabase no responde, avisamos en vez de dejar el botón colgado.
+    const withTimeout = <T,>(p: Promise<T>) => Promise.race([
+      p,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("El servidor de cuentas no responde. Inténtalo en un momento.")), 20000)),
+    ]);
     try {
       if (modeAuth === "register") {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await withTimeout(supabase.auth.signUp({
+          email, password,
+          options: { emailRedirectTo: window.location.origin + window.location.pathname },
+        }));
         if (error) throw error;
-        if (data.user) {
+        if (data.user && (data.user.identities?.length ?? 0) === 0) {
+          setNotice("Ese correo ya tiene cuenta. Pulsa «Ya tengo cuenta» para entrar.");
+        } else if (data.session && data.user) {
           setSessionEmail(data.user.email || email);
           try { setProfile(await fetchProfile(data.user.id)); } catch {}
           setNotice("Cuenta creada.");
           setScreen("Inicio");
+        } else {
+          setNotice("¡Cuenta creada! Te hemos enviado un correo: abre el enlace para confirmarla y después entra aquí.");
+          setModeAuth("login");
         }
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await withTimeout(supabase.auth.signInWithPassword({ email, password }));
         if (error) throw error;
         setSessionEmail(data.user?.email || email);
         if (data.user) {
@@ -380,7 +393,13 @@ export default function App() {
         setScreen("Inicio");
       }
     } catch (e: unknown) {
-      setNotice(e instanceof Error ? e.message : "No se pudo autenticar.");
+      const msg = e instanceof Error ? e.message : "No se pudo autenticar.";
+      const es: Record<string, string> = {
+        "Invalid login credentials": "Correo o contraseña incorrectos.",
+        "Email not confirmed": "Aún no has confirmado tu correo. Revisa tu bandeja (y spam).",
+        "User already registered": "Ese correo ya tiene cuenta. Pulsa «Ya tengo cuenta» para entrar.",
+      };
+      setNotice(es[msg] || msg);
     } finally { setBusy(false); }
   }
 
@@ -414,9 +433,10 @@ export default function App() {
           <label>Contraseña<input value={password} onChange={(e) => setPassword(e.target.value)} type="password" minLength={8} required /></label>
           {notice ? <p className="notice">{notice}</p> : null}
           <button className="btn wide" disabled={busy}>{busy ? "Espera…" : modeAuth === "login" ? "Entrar" : "Registrarme"}</button>
-          <button type="button" className="link" onClick={() => setModeAuth((m) => (m === "login" ? "register" : "login"))}>
+          <button type="button" className="link" onClick={() => { setModeAuth((m) => (m === "login" ? "register" : "login")); setNotice(""); }}>
             {modeAuth === "login" ? "¿No tienes cuenta? Regístrate" : "Ya tengo cuenta"}
           </button>
+          <button type="button" className="link" onClick={() => { setNotice(""); setScreen("Inicio"); }}>← Volver</button>
         </form>
       </div>
     );
