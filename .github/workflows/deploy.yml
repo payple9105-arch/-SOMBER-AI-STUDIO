@@ -30,10 +30,9 @@ jobs:
       - name: Instalar dependencias
         run: npm install
 
+      # La URL y la clave publicable de Supabase están en src/lib/supabase.ts
+      # (son públicas). No se usan secretos aquí: unos antiguos apuntaban a otro proyecto.
       - name: Compilar aplicación
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
 
       - name: Configurar GitHub Pages
